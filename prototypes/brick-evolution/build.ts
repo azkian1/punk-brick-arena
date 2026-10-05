@@ -125,6 +125,143 @@ function guitar(stage: number) {
   return { blueprint:b,neckY };
 }
 
+// The new silhouettes use only filled stud/plate cells. Curves, drum rims,
+// speaker cones and wing membranes are packed with the same donor stock.
+function drum(b: Blueprint, x: number, y: number, z: number, radius: number, height: number) {
+  for(const [bottom,top,r,zone] of [[y,y+1.2,radius,'drum-rim'],[y+1.2,y+height-1.2,radius-1.2,'drum-shell'],[y+height-1.2,y+height,radius,'drum-rim']] as const)
+    b.volume([x-r,x+r,bottom,top,z-r,z+r],(a,_,c)=>((a-x)/r)**2+((c-z)/r)**2<=1,zone);
+  for(const side of [-1,1])b.box(x+side*(radius-1)-1,x+side*(radius-1)+1,y,y+height,z-1,z+1,'drum-lugs');
+}
+
+function spider(stage: number) {
+  const b=new Blueprint(),big=stage===3,neckY=big?55.2:43.2;
+  b.ellipsoid(0,big?33:25,0,big?10:7,big?7:4,big?7:5,'pelvis');
+  b.ellipsoid(0,big?45:34,0,big?12:9,big?10:8.5,big?7:5.5,'torso');
+  b.box(-4,4,neckY-4.8,neckY,-3,4,'neck');
+  drum(b,0,big?29:22,big?9:6,big?11:8,big?10.8:7.2);
+  for(const side of [-1,1]) {
+    if(big) {
+      for(const row of [-1,1]) {
+        // A pair of front legs and a pair of rear legs, separated in depth.
+        const toe=side*(row===1?34:29),z=row*18;
+        b.limb([side*7,33,row*4],[side*22,26,row*13],3.8,4,'spider-upper-legs');
+        b.limb([side*22,26,row*13],[toe,5,z],3.1,3.8,'spider-lower-legs');
+        b.box(toe-5,toe+5,0,4.8,z-4,z+7,'boots');
+        b.box(side*22-4,side*22+4,24,28.8,row*13-4,row*13+4,'kneepads');
+      }
+      b.limb([side*11,47,2],[side*22,42,5],3.4,3.5,'lower-upper-arms');
+      b.limb([side*22,42,5],[side*30,50,8],3,3.2,'lower-forearms');
+      b.ellipsoid(side*31,51,8,3.6,4,3.6,'lower-hands');
+      b.limb([side*31,52,8],[side*39,65,8],1.3,1.4,'lower-drumsticks');
+      b.box(side*39-3,side*39+3,63.6,68.4,5,11,'lower-mallet-heads');
+      b.limb([side*8,50,-4],[side*18,63,-7],3.2,3.4,'upper-upper-arms');
+      b.limb([side*18,63,-7],[side*27,72,-6],2.9,3,'upper-forearms');
+      b.ellipsoid(side*27,73,-6,3.5,4,3,'upper-hands');
+      b.limb([side*27,74,-6],[side*38,86,-6],1.3,1.4,'upper-drumsticks');
+      b.box(side*38-3,side*38+3,84,90,-9,-3,'upper-mallet-heads');
+      b.spike(side*11,49.2,2,4.8);
+    } else {
+      b.box(side*9-4,side*9+4,0,4.8,-4,8,'boots');
+      b.limb([side*9,5,0],[side*8,15,0],2.9,3.5,'shins');
+      b.limb([side*8,15,0],[side*4,26,0],3.3,4,'thighs');
+      b.limb([side*8,37,0],[side*17,30,0],2.9,3,'upper-arms');
+      b.limb([side*17,30,0],[side*24,40,2],2.8,3,'forearms');
+      b.ellipsoid(side*24,41,2,3.2,3.8,3,'hands');
+      b.limb([side*24,42,2],[side*29,54,2],1.2,1.3,'drumsticks');
+      b.box(side*29-2,side*29+2,52.8,56.4,0,4,'mallet-heads');
+      b.spike(side*11,38.4,0,3.6);
+    }
+  }
+  return {blueprint:b,neckY};
+}
+
+function speaker(b: Blueprint, x: number, y: number, radius: number, back: number) {
+  // Recess the front of the chest, then build a rim and an inward-sloping cone.
+  // Relief remains readable when every brick has a different color.
+  for(const [k,c] of b.cells)if((c.x+.5-x)**2+((c.y+.5)*.4-y)**2<radius*radius&&c.z>=back)b.cells.delete(k);
+  b.volume([x-radius,x+radius,y-radius,y+radius,back,back+4],(a,c,z)=>{
+    const r=Math.hypot(a-x,c-y);
+    return r<=radius&&(r>=radius-1.3||z<back+.7+2.8*(1-r/(radius-1.3))**2);
+  },'speaker-cone');
+  b.ellipsoid(x,y,back+2.2,radius*.27,radius*.27,1.5,'speaker-dustcap');
+}
+
+function bass(stage: number) {
+  const b=new Blueprint(),big=stage===3,neckY=big?64.8:45.6;
+  for(const side of [-1,1]) {
+    const foot=big?14:8;
+    b.box(side*foot-(big?6:4.5),side*foot+(big?6:4.5),0,big?6:4.8,-4,big?12:9,'boots');
+    b.limb([side*foot,5,0],[side*(big?12:7),big?18:14,0],big?4.8:3.5,big?5.5:4,'shins');
+    b.limb([side*(big?12:7),big?18:14,0],[side*(big?8:5),big?31:25,0],big?5.8:4,big?6:4.5,'thighs');
+    b.limb([side*(big?17:10),big?55:37,0],[side*(big?27:17),big?41:28,0],big?6.3:4,big?6:4,'upper-arms');
+    b.limb([side*(big?27:17),big?41:28,0],[side*(big?29:18),big?27:19,2],big?5.1:3.8,big?5:4,'forearms');
+    b.ellipsoid(side*(big?29:18),big?21:16,2,big?6.5:4.5,big?7.5:5,big?6:4.7,'fists');
+    b.box(side*(big?29:18)-(big?6:4),side*(big?29:18)+(big?6:4),big?27.6:20.4,big?31.2:22.8,-4,big?8:6,'cuffs');
+    b.spike(side*(big?18:12),big?58.8:40.8,1,big?4.8:3.6);
+  }
+  b.ellipsoid(0,big?31:25,0,big?11:8,big?6:5,big?7:5,'pelvis');
+  b.ellipsoid(0,big?48:34,0,big?18:11.5,big?15:9,big?10:6.7,'torso');
+  b.box(-5,5,neckY-4.8,neckY,-4,4,'neck');
+  b.box(big?-10:-7,big?10:7,big?30:24,big?33.6:26.4,4,big?9:7,'belt');
+  if(big) {
+    for(const x of [-7,7])for(const y of [41,54])speaker(b,x,y,6,4);
+    for(const side of [-1,1]) {
+      b.limb([side*13,55,-5],[side*20,71,-6],2.8,3,'horn-stems');
+      // Hollow, forward-facing stepped horn mouth: ordinary bricks, no speaker part.
+      for(let z=-8;z<1;z++) {
+        const r=3+(z+8)*.32;
+        b.volume([side*20-r,side*20+r,72-r,72+r,z,z+1],(x,y)=>Math.max(Math.abs(x-side*20),Math.abs(y-72))<=r&&(Math.max(Math.abs(x-side*20),Math.abs(y-72))>=r-1.5||z<-6),'horn-mouths');
+      }
+    }
+  } else speaker(b,0,34,6,3);
+  return {blueprint:b,neckY};
+}
+
+function frontman(stage: number) {
+  const b=new Blueprint(),big=stage===3,neckY=big?60:43.2;
+  for(const side of [-1,1]) {
+    const foot=big?12:7;
+    b.box(side*foot-4,side*foot+4,0,4.8,-3,9,'boots');
+    b.limb([side*foot,5,0],[side*(big?9:6),big?17:13,0],big?3.2:2.8,3.5,'shins');
+    b.limb([side*(big?9:6),big?17:13,0],[side*4,big?31:24,0],big?3.7:3.1,3.6,'thighs');
+  }
+  b.ellipsoid(0,big?31:24,0,big?7:6.5,4.5,4,'pelvis');
+  b.ellipsoid(0,big?46:33,0,big?9:8,big?12:9,big?5.5:5,'torso');
+  b.box(-4,4,neckY-4.8,neckY,-3,4,'neck');
+  b.box(-7,7,big?30:24,big?32.4:26.4,3,6,'belt');
+  b.limb([big?8:7,big?52:36,0],[big?22:16,big?46:30,0],big?3.4:2.8,3,'microphone-upper-arm');
+  b.limb([big?22:16,big?46:30,0],[big?16:14,big?65:47,3],big?3:2.5,3,'microphone-forearm');
+  b.ellipsoid(big?16:14,big?65:47,3,3,3.6,3,'microphone-hand');
+  b.limb([big?16:14,big?65:47,3],[11,big?71:53,6],1.2,1.3,'microphone-handle');
+  b.box(9,13,big?70:51.6,big?73.2:55.2,4,8,'microphone-head');
+  b.limb([big?-8:-7,big?52:36,0],[big?-20:-15,big?44:28,0],big?3:2.6,3,'left-upper-arm');
+  b.limb([big?-20:-15,big?44:28,0],[big?-28:-19,big?32:20,3],big?2.8:2.6,3,'left-forearm');
+  b.ellipsoid(big?-29:-19,big?30:18,3,3.8,4,3.4,'claw-palm');
+  if(big)for(let i=0;i<3;i++) {
+    b.limb([-28-i*2,30,1+i*3],[-33-i*3,23,1+i*3],1.3,1.3,'claw-fingers');
+    b.limb([-33-i*3,23,1+i*3],[-31-i*3,19,1+i*3],1.3,1.3,'claw-tips');
+  }
+  for(const side of [-1,1]) {
+    if(big) {
+      const points=[[7,51],[18,65],[40,88],[55,38],[43,48],[35,31],[26,42],[19,28],[12,42]].map(([x,y])=>[x*side,y]);
+      b.polygon(points,-8,-6,'wing-membranes');
+      // Leading spars and branching fingers attach the membranes to the back.
+      b.limb([side*6,51,-5],[side*18,65,-7],2.5,2.6,'wing-roots');
+      b.limb([side*18,65,-7],[side*40,87,-7],2.1,2.3,'wing-leading-edges');
+      b.limb([side*40,87,-7],[side*54,39,-7],1.5,1.7,'wing-fingers');
+      b.limb([side*40,86,-7],[side*35,33,-7],1.4,1.6,'wing-fingers');
+      b.limb([side*18,64,-7],[side*19,30,-7],1.4,1.6,'wing-fingers');
+      b.spike(side*40,87.6,-7,3.6);
+      b.polygon([[side*7,32],[side*3,30],[side*10,12],[side*14,17]],-6,-4,'coat-tails');
+    } else {
+      b.polygon([[side*5,38],[side*14,38],[side*19,21],[side*13,25],[side*11,18],[side*7,27]],-6,-4,'short-cape');
+      b.limb([side*5,38,-3],[side*14,37,-5],1.8,2,'cape-roots');
+      b.spike(side*9,37.2,0,3.6);
+    }
+  }
+  return {blueprint:b,neckY};
+}
+
 // A finite stream of real donor heads. When a slot needs more of a size, bring
 // in another complete donor head. No cutting, stretching, recoloring or rotations.
 class Inventory {
@@ -178,7 +315,11 @@ function assemble(id: string, label: string, stage: number, body: ReturnType<typ
     if(cells.has(k)&&!reached.has(k)){reached.add(k);queue.push(cells.get(k)!);}
   }
   const dust=cells.size-reached.size;
-  if(dust>cells.size*.005) throw new Error(`${id}: disconnected blueprint ${dust} cells`);
+  if(dust>cells.size*.005) {
+    const zones:Record<string,number>={};
+    for(const [k,c] of cells)if(!reached.has(k))zones[c.zone]=(zones[c.zone]??0)+1;
+    throw new Error(`${id}: disconnected blueprint ${dust} cells: ${JSON.stringify(zones)}`);
+  }
   for(const k of cells.keys()) if(!reached.has(k)) cells.delete(k);
   const maskCells=cells.size, occupied=new Set<string>(),inventory=new Inventory();
   // Starting with several complete heads avoids choosing colors to fit a design.
@@ -256,8 +397,13 @@ function assemble(id: string, label: string, stage: number, body: ReturnType<typ
   return report;
 }
 
+const catalog:{id:string;name:string}[]=JSON.parse(readFileSync(new URL('./catalog.json',import.meta.url),'utf8'));
+const builders:Record<string,typeof mosher>={mosher,guitar,spider,bass,frontman};
+const requested=process.argv.slice(2);
+for(const id of requested)if(!builders[id])throw new Error(`Unknown variation: ${id}`);
 const reports=[];
-for(const [id,label,fn] of [['mosher','МОШЕР',mosher],['guitar','ГИТАРНЫЙ ДЕМОН',guitar]] as const)
-  for(const stage of [2,3]) reports.push(assemble(`${id}-${stage}`,label,stage,fn(stage)));
-writeFileSync(new URL('report.json',out),JSON.stringify({generatedBy:'prototypes/brick-evolution/build.ts',colorPolicy:'Keep each donor part original color. No matching by color. Original own head stays unchanged.',stockPolicy:'Complete donor heads admitted as needed; every used part retains exact shape, dimensions and color. Only translation; no part reuse within a model.',reports},null,2));
-console.log(`Saved four buildable-in-game models to ${fileURLToPath(out)}`);
+for(const {id,name} of catalog)
+  if(!requested.length||requested.includes(id))
+  for(const stage of [2,3]) reports.push(assemble(`${id}-${stage}`,name,stage,builders[id](stage)));
+if(!requested.length)writeFileSync(new URL('report.json',out),JSON.stringify({generatedBy:'prototypes/brick-evolution/build.ts',colorPolicy:'Keep each donor part original color. No matching by color. Original own head stays unchanged.',stockPolicy:'Complete donor heads admitted as needed; every used part retains exact shape, dimensions and color. Only translation; no part reuse within a model.',reports},null,2));
+console.log(`Saved ${reports.length} buildable-in-game models to ${fileURLToPath(out)}`);

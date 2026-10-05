@@ -1,27 +1,39 @@
 {
   "checks": [
     {
-      "character": "mosher",
+      "character": "spider",
       "monochrome": false,
-      "file": "mosher-brick-assembly.png",
+      "file": "spider-brick-assembly.png",
       "status": "✓ Все детали связаны с ядром · 0 пересечений"
     },
     {
-      "character": "mosher",
+      "character": "spider",
       "monochrome": true,
-      "file": "mosher-brick-assembly-silhouette.png",
+      "file": "spider-brick-assembly-silhouette.png",
       "status": "✓ Все детали связаны с ядром · 0 пересечений"
     },
     {
-      "character": "guitar",
+      "character": "bass",
       "monochrome": false,
-      "file": "guitar-brick-assembly.png",
+      "file": "bass-brick-assembly.png",
       "status": "✓ Все детали связаны с ядром · 0 пересечений"
     },
     {
-      "character": "guitar",
+      "character": "bass",
       "monochrome": true,
-      "file": "guitar-brick-assembly-silhouette.png",
+      "file": "bass-brick-assembly-silhouette.png",
+      "status": "✓ Все детали связаны с ядром · 0 пересечений"
+    },
+    {
+      "character": "frontman",
+      "monochrome": false,
+      "file": "frontman-brick-assembly.png",
+      "status": "✓ Все детали связаны с ядром · 0 пересечений"
+    },
+    {
+      "character": "frontman",
+      "monochrome": true,
+      "file": "frontman-brick-assembly-silhouette.png",
       "status": "✓ Все детали связаны с ядром · 0 пересечений"
     }
   ],

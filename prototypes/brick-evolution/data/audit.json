@@ -155,6 +155,240 @@
       ],
       "sourceDimensionsColorsAndShapesPreserved": true,
       "bankBalanced": true
+    },
+    {
+      "id": "spider-2",
+      "pieces": 2768,
+      "stock": 1102,
+      "prefixes": [
+        {
+          "fraction": 0,
+          "installed": 423,
+          "bank": 3447,
+          "connected": 423
+        },
+        {
+          "fraction": 0.25,
+          "installed": 1009,
+          "bank": 2861,
+          "connected": 1009
+        },
+        {
+          "fraction": 0.5,
+          "installed": 1596,
+          "bank": 2274,
+          "connected": 1596
+        },
+        {
+          "fraction": 0.75,
+          "installed": 2182,
+          "bank": 1688,
+          "connected": 2182
+        },
+        {
+          "fraction": 1,
+          "installed": 2768,
+          "bank": 1102,
+          "connected": 2768
+        }
+      ],
+      "sourceDimensionsColorsAndShapesPreserved": true,
+      "bankBalanced": true
+    },
+    {
+      "id": "spider-3",
+      "pieces": 7414,
+      "stock": 11825,
+      "prefixes": [
+        {
+          "fraction": 0,
+          "installed": 423,
+          "bank": 18816,
+          "connected": 423
+        },
+        {
+          "fraction": 0.25,
+          "installed": 2171,
+          "bank": 17068,
+          "connected": 2171
+        },
+        {
+          "fraction": 0.5,
+          "installed": 3919,
+          "bank": 15320,
+          "connected": 3919
+        },
+        {
+          "fraction": 0.75,
+          "installed": 5666,
+          "bank": 13573,
+          "connected": 5666
+        },
+        {
+          "fraction": 1,
+          "installed": 7414,
+          "bank": 11825,
+          "connected": 7414
+        }
+      ],
+      "sourceDimensionsColorsAndShapesPreserved": true,
+      "bankBalanced": true
+    },
+    {
+      "id": "bass-2",
+      "pieces": 3148,
+      "stock": 2681,
+      "prefixes": [
+        {
+          "fraction": 0,
+          "installed": 423,
+          "bank": 5406,
+          "connected": 423
+        },
+        {
+          "fraction": 0.25,
+          "installed": 1104,
+          "bank": 4725,
+          "connected": 1104
+        },
+        {
+          "fraction": 0.5,
+          "installed": 1786,
+          "bank": 4043,
+          "connected": 1786
+        },
+        {
+          "fraction": 0.75,
+          "installed": 2467,
+          "bank": 3362,
+          "connected": 2467
+        },
+        {
+          "fraction": 1,
+          "installed": 3148,
+          "bank": 2681,
+          "connected": 3148
+        }
+      ],
+      "sourceDimensionsColorsAndShapesPreserved": true,
+      "bankBalanced": true
+    },
+    {
+      "id": "bass-3",
+      "pieces": 8014,
+      "stock": 9971,
+      "prefixes": [
+        {
+          "fraction": 0,
+          "installed": 423,
+          "bank": 17562,
+          "connected": 423
+        },
+        {
+          "fraction": 0.25,
+          "installed": 2321,
+          "bank": 15664,
+          "connected": 2321
+        },
+        {
+          "fraction": 0.5,
+          "installed": 4219,
+          "bank": 13766,
+          "connected": 4219
+        },
+        {
+          "fraction": 0.75,
+          "installed": 6116,
+          "bank": 11869,
+          "connected": 6116
+        },
+        {
+          "fraction": 1,
+          "installed": 8014,
+          "bank": 9971,
+          "connected": 8014
+        }
+      ],
+      "sourceDimensionsColorsAndShapesPreserved": true,
+      "bankBalanced": true
+    },
+    {
+      "id": "frontman-2",
+      "pieces": 2523,
+      "stock": 1771,
+      "prefixes": [
+        {
+          "fraction": 0,
+          "installed": 423,
+          "bank": 3871,
+          "connected": 423
+        },
+        {
+          "fraction": 0.25,
+          "installed": 948,
+          "bank": 3346,
+          "connected": 948
+        },
+        {
+          "fraction": 0.5,
+          "installed": 1473,
+          "bank": 2821,
+          "connected": 1473
+        },
+        {
+          "fraction": 0.75,
+          "installed": 1998,
+          "bank": 2296,
+          "connected": 1998
+        },
+        {
+          "fraction": 1,
+          "installed": 2523,
+          "bank": 1771,
+          "connected": 2523
+        }
+      ],
+      "sourceDimensionsColorsAndShapesPreserved": true,
+      "bankBalanced": true
+    },
+    {
+      "id": "frontman-3",
+      "pieces": 5814,
+      "stock": 3290,
+      "prefixes": [
+        {
+          "fraction": 0,
+          "installed": 423,
+          "bank": 8681,
+          "connected": 423
+        },
+        {
+          "fraction": 0.25,
+          "installed": 1771,
+          "bank": 7333,
+          "connected": 1771
+        },
+        {
+          "fraction": 0.5,
+          "installed": 3119,
+          "bank": 5985,
+          "connected": 3119
+        },
+        {
+          "fraction": 0.75,
+          "installed": 4466,
+          "bank": 4638,
+          "connected": 4466
+        },
+        {
+          "fraction": 1,
+          "installed": 5814,
+          "bank": 3290,
+          "connected": 5814
+        }
+      ],
+      "sourceDimensionsColorsAndShapesPreserved": true,
+      "bankBalanced": true
     }
   ]
 }

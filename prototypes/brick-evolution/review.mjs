@@ -1,5 +1,5 @@
 import { chromium } from 'file:///C:/Users/az/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright/index.mjs';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile, readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 
 // A disposable, headless test browser; never attaches to a user's browser/profile.
@@ -7,6 +7,10 @@ const output=new URL('./previews/',import.meta.url);
 await mkdir(output,{recursive:true});
 const browser=await chromium.launch({headless:true,executablePath:'C:/Program Files/Google/Chrome/Application/chrome.exe',args:['--use-angle=swiftshader']});
 const errors=[],checks=[];
+const catalog=JSON.parse(await readFile(new URL('./catalog.json',import.meta.url),'utf8'));
+const requested=process.argv.slice(2);
+const characters=requested.length?requested:catalog.map(c=>c.id);
+for(const id of characters)if(!catalog.some(c=>c.id===id))throw new Error(`Unknown variation ${id}`);
 try {
   const context=await browser.newContext({viewport:{width:1920,height:1200},deviceScaleFactor:1,acceptDownloads:true});
   const page=await context.newPage();
@@ -14,7 +18,7 @@ try {
   page.on('console',m=>{if(m.type()==='error')errors.push(m.text());});
   const response=await page.goto('http://127.0.0.1:5173/prototypes/brick-evolution/',{waitUntil:'networkidle'});
   if(response.status()!==200)throw new Error(`HTTP ${response.status()}`);
-  for(const character of ['mosher','guitar']) {
+  for(const character of characters) {
     await page.locator(`[data-model="${character}"]`).click();
     await page.locator('#status.checked').waitFor({timeout:30000});
     await page.screenshot({path:fileURLToPath(new URL(`${character}-viewer.png`,output)),fullPage:true});
@@ -35,7 +39,7 @@ try {
     await page.locator('#back').click();
     await page.screenshot({path:fileURLToPath(new URL(`${character}-back.png`,output)),fullPage:true});
     await page.locator('#angle').click();
-    if(character==='guitar') {
+    if(character!=='mosher') {
       await page.locator('#reserve').click();
       if(!(await page.locator('#status').innerText()).includes('0 потерянных'))throw new Error('Reserve balance missing');
       const reserveDownload=page.waitForEvent('download');await page.locator('#export').click();
@@ -46,5 +50,5 @@ try {
   }
   await writeFile(new URL('browser-check.json',output),JSON.stringify({checks,errors},null,2));
   if(errors.length)throw new Error(errors.join('\n'));
-  console.log(JSON.stringify({pngs:checks.map(c=>c.file),browserErrors:errors.length,checked:'both characters; both phases; mixed colors; monochrome; connected growth; back view'}));
+  console.log(JSON.stringify({characters,pngs:checks.map(c=>c.file),browserErrors:errors.length,checked:'both phases; mixed colors; monochrome; connected growth; back view; reserve'}));
 } finally { await browser.close(); }

@@ -2,12 +2,26 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CharacterView } from '../../src/render.ts';
 import { createStructure } from '../../src/game/structure.ts';
+import catalog from './catalog.json';
 
 const nf=new Intl.NumberFormat('ru-RU');
 const colorButton=document.querySelector('#color');
 let current='mosher',monochrome=false,growth=1,revision=0,showReserve=false;
 const cache=new Map(),views=[];
-const descriptions={mosher:'Мошер: тяжёлые кулаки, широкая стойка и ступенчатые шипы. Голова сохраняет исходный размер.',guitar:'Гитарный демон: вытянутое тело, гитара из пластин и длинная рука-коготь. Никаких специальных деталей для струн или суставов.'};
+const descriptions=Object.fromEntries(catalog.map(c=>[c.id,c.description]));
+let framing={height:104,width:112,centerY:38};
+const tabs=document.querySelector('.tabs');
+for(const [index,entry] of catalog.entries()) {
+  const button=document.createElement('button');button.dataset.model=entry.id;
+  button.textContent=`${String(index+1).padStart(2,'0')} / ${entry.label}`;tabs.append(button);
+}
+
+function fitProjection(v) {
+  const aspect=v.host.clientWidth/v.host.clientHeight;
+  const h=showReserve?Math.max(104,112/aspect):Math.max(framing.height,framing.width/aspect);
+  v.camera.left=-h*aspect/2;v.camera.right=h*aspect/2;v.camera.top=h/2;v.camera.bottom=-h/2;
+  v.camera.updateProjectionMatrix();v.dirty=true;
+}
 
 for(const stage of [2,3]) {
   const host=document.querySelector(`#phase-${stage}`),canvas=host.querySelector('canvas');
@@ -32,15 +46,16 @@ for(const stage of [2,3]) {
   const v={stage,host,renderer,scene,camera,controls,view,record:null,reserveView:null,dirty:true};views.push(v);
   new ResizeObserver(()=>{
     const w=host.clientWidth,h=host.clientHeight;
-    renderer.setSize(w,h,false);camera.left=-52*w/h;camera.right=52*w/h;camera.top=52;camera.bottom=-52;camera.updateProjectionMatrix();v.dirty=true;
+    renderer.setSize(w,h,false);fitProjection(v);
   }).observe(host);
 }
 
 function setAngle(mode) {
   for(const v of views) {
-    v.controls.target.set(0,showReserve?15:38,0);v.camera.zoom=1;
-    v.camera.position.set(mode==='angle'?100:0,mode==='front'?45:92,mode==='back'?-230:230);
-    v.camera.updateProjectionMatrix();v.controls.update();v.dirty=true;
+    const targetY=showReserve?15:framing.centerY;
+    v.controls.target.set(0,targetY,0);v.camera.zoom=1;
+    v.camera.position.set(mode==='angle'?100:0,targetY+(mode==='front'?7:54),mode==='back'?-230:230);
+    fitProjection(v);v.controls.update();v.dirty=true;
   }
 }
 setAngle('angle');
@@ -94,6 +109,7 @@ function sync() {
 
 async function loadModel(name) {
   current=name;document.querySelector('#status').className='';document.querySelector('#status').textContent='Загрузка…';
+  document.querySelector('#export').disabled=true;
   for(const b of document.querySelectorAll('[data-model]'))b.classList.toggle('active',b.dataset.model===name);
   try {
     const records=await Promise.all([2,3].map(async stage=>{
@@ -102,11 +118,16 @@ async function loadModel(name) {
       return cache.get(id);
     }));
     if(current!==name)return;
+    const height=Math.max(...records.map(r=>r.report.bounds.max.y));
+    const depth=Math.max(...records.map(r=>r.report.bounds.max.z-r.report.bounds.min.z));
+    const width=Math.max(...records.map(r=>r.report.bounds.max.x-r.report.bounds.min.x));
+    framing={height:Math.max(104,height*1.18+depth*.22),width:Math.max(112,(width+depth*.45)*1.14),centerY:height/2};
     views.forEach((v,i)=>{if(v.reserveView){v.reserveView.dispose(v.scene);v.reserveView=null;}v.record=records[i];});sync();setAngle('angle');
     const valid=records.every(r=>r.report.connected===r.report.pieces&&r.report.collisions===0&&r.report.cutOrScaledPieces===0);
     const status=document.querySelector('#status');status.className=valid?'checked':'error';status.textContent=valid?(showReserve?'✓ Баланс деталей сохранён · 0 потерянных деталей':'✓ Все детали связаны с ядром · 0 пересечений'):'Есть ошибки проверки';
     document.querySelector('#data-links').innerHTML=`<a href="./data/${name}-2.json" download>Модель фазы 2 (JSON)</a> · <a href="./data/${name}-3.json" download>Модель фазы 3 (JSON)</a> · <a href="./data/report.json" download>Отчёт проверки и расход деталей</a>`;
     document.querySelector('#export').disabled=false;
+    const url=new URL(location.href);url.searchParams.set('model',name);history.replaceState(null,'',url);
   } catch(e) {document.querySelector('#status').className='error';document.querySelector('#status').textContent=e.message;console.error(e);}
 }
 
@@ -119,7 +140,7 @@ document.querySelector('#export').addEventListener('click',()=>{
   const c=document.createElement('canvas');c.width=2000;c.height=1220;const g=c.getContext('2d');
   g.fillStyle='#fbfaf7';g.fillRect(0,0,c.width,c.height);
   g.fillStyle='#8051c1';g.font='bold 18px Arial';g.fillText('PUNK BRICK / REAL PARTS ASSEMBLY',52,43);
-  g.fillStyle='#24212b';g.font='bold 42px Arial';g.fillText(current==='mosher'?'МОШЕР':'ГИТАРНЫЙ ДЕМОН',52,99);
+  g.fillStyle='#24212b';g.font='bold 42px Arial';g.fillText(catalog.find(c=>c.id===current).name,52,99);
   g.fillStyle='#716779';g.font='22px Arial';g.fillText(showReserve?'Накопитель · Все оставшиеся детали':monochrome?'Одноцветный просмотр силуэта':'Исходные цвета добычи · Без подбора по цвету',52,137);
   views.forEach((v,i)=>{
     v.renderer.render(v.scene,v.camera);
@@ -135,4 +156,5 @@ document.querySelector('#export').addEventListener('click',()=>{
 });
 
 function frame(){requestAnimationFrame(frame);for(const v of views){if(v.controls.update()||v.dirty){v.renderer.render(v.scene,v.camera);v.dirty=false;}}}frame();
-loadModel('mosher');
+const initial=new URL(location.href).searchParams.get('model');
+loadModel(catalog.some(c=>c.id===initial)?initial:'mosher');

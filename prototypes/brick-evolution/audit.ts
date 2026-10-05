@@ -4,7 +4,8 @@ import { createStructure, connectedToCore } from '../../src/game/structure';
 
 const source=JSON.parse(readFileSync(new URL('../../src/assets/templates.generated.json',import.meta.url),'utf8'));
 const checks=[];
-for(const id of ['mosher-2','mosher-3','guitar-2','guitar-3']) {
+const catalog=JSON.parse(readFileSync(new URL('./catalog.json',import.meta.url),'utf8'));
+for(const id of catalog.flatMap((entry:{id:string})=>[`${entry.id}-2`,`${entry.id}-3`])) {
   const {model,report,reserve}=JSON.parse(readFileSync(new URL(`./data/${id}.json`,import.meta.url),'utf8'));
   const original=source.find((t:any)=>t.id==='violet');
   assert.equal(report.headPieces,original.pieces.length);
