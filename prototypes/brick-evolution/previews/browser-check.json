@@ -1,0 +1,29 @@
+{
+  "checks": [
+    {
+      "character": "mosher",
+      "monochrome": false,
+      "file": "mosher-brick-assembly.png",
+      "status": "✓ Все детали связаны с ядром · 0 пересечений"
+    },
+    {
+      "character": "mosher",
+      "monochrome": true,
+      "file": "mosher-brick-assembly-silhouette.png",
+      "status": "✓ Все детали связаны с ядром · 0 пересечений"
+    },
+    {
+      "character": "guitar",
+      "monochrome": false,
+      "file": "guitar-brick-assembly.png",
+      "status": "✓ Все детали связаны с ядром · 0 пересечений"
+    },
+    {
+      "character": "guitar",
+      "monochrome": true,
+      "file": "guitar-brick-assembly-silhouette.png",
+      "status": "✓ Все детали связаны с ядром · 0 пересечений"
+    }
+  ],
+  "errors": []
+}

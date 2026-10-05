@@ -1,0 +1,466 @@
+{
+  "repository": "https://github.com/hs7j4yk4sz-boop/punk-to-bricks",
+  "commit": "15e95d6c4ed55cbc48ed3dd9a463a80fed443008",
+  "size": "mini",
+  "templates": [
+    {
+      "id": "violet",
+      "sourceImage": "reference.png",
+      "pieces": 423,
+      "connected": 423,
+      "coreId": "violet-0151",
+      "coreContacts": 7,
+      "dimensions": {
+        "x": 15,
+        "y": 21.2,
+        "z": 11
+      },
+      "upstreamChecks": {
+        "pieces": 423,
+        "connections": 1643,
+        "floating": 0,
+        "floatingIds": [],
+        "collisions": 0,
+        "weak": 29,
+        "com": {
+          "x": 11.8,
+          "z": 3.6,
+          "inside": true,
+          "margin": 5.4
+        }
+      }
+    },
+    {
+      "id": "flare",
+      "sourceImage": "a-1.png",
+      "pieces": 499,
+      "connected": 499,
+      "coreId": "flare-0164",
+      "coreContacts": 7,
+      "dimensions": {
+        "x": 18,
+        "y": 23.2,
+        "z": 11
+      },
+      "upstreamChecks": {
+        "pieces": 499,
+        "connections": 1855,
+        "floating": 0,
+        "floatingIds": [],
+        "collisions": 0,
+        "weak": 30,
+        "com": {
+          "x": 10.7,
+          "z": 3.6,
+          "inside": true,
+          "margin": 5.3
+        }
+      }
+    },
+    {
+      "id": "ranger",
+      "sourceImage": "b-1.png",
+      "pieces": 446,
+      "connected": 446,
+      "coreId": "ranger-0141",
+      "coreContacts": 6,
+      "dimensions": {
+        "x": 17,
+        "y": 22.4,
+        "z": 11
+      },
+      "upstreamChecks": {
+        "pieces": 446,
+        "connections": 1557,
+        "floating": 0,
+        "floatingIds": [],
+        "collisions": 0,
+        "weak": 37,
+        "com": {
+          "x": 11.1,
+          "z": 3.6,
+          "inside": true,
+          "margin": 4.9
+        }
+      }
+    },
+    {
+      "id": "pilot",
+      "sourceImage": "b-2.png",
+      "pieces": 452,
+      "connected": 452,
+      "coreId": "pilot-0127",
+      "coreContacts": 10,
+      "dimensions": {
+        "x": 17,
+        "y": 19.2,
+        "z": 11
+      },
+      "upstreamChecks": {
+        "pieces": 452,
+        "connections": 1463,
+        "floating": 0,
+        "floatingIds": [],
+        "collisions": 0,
+        "weak": 46,
+        "com": {
+          "x": 11.9,
+          "z": 3.6,
+          "inside": true,
+          "margin": 4.9
+        }
+      }
+    },
+    {
+      "id": "ember",
+      "sourceImage": "b-3.png",
+      "pieces": 420,
+      "connected": 420,
+      "coreId": "ember-0136",
+      "coreContacts": 8,
+      "dimensions": {
+        "x": 13,
+        "y": 20.4,
+        "z": 11
+      },
+      "upstreamChecks": {
+        "pieces": 420,
+        "connections": 1439,
+        "floating": 0,
+        "floatingIds": [],
+        "collisions": 0,
+        "weak": 24,
+        "com": {
+          "x": 11.2,
+          "z": 3.6,
+          "inside": true,
+          "margin": 4.8
+        }
+      }
+    },
+    {
+      "id": "ghoul",
+      "sourceImage": "b-4.png",
+      "pieces": 385,
+      "connected": 385,
+      "coreId": "ghoul-0139",
+      "coreContacts": 7,
+      "dimensions": {
+        "x": 15,
+        "y": 21.2,
+        "z": 11
+      },
+      "upstreamChecks": {
+        "pieces": 385,
+        "connections": 1502,
+        "floating": 0,
+        "floatingIds": [],
+        "collisions": 0,
+        "weak": 27,
+        "com": {
+          "x": 10.4,
+          "z": 3.6,
+          "inside": true,
+          "margin": 4.6
+        }
+      }
+    },
+    {
+      "id": "candy",
+      "sourceImage": "b-5.png",
+      "pieces": 389,
+      "connected": 389,
+      "coreId": "candy-0122",
+      "coreContacts": 8,
+      "dimensions": {
+        "x": 14,
+        "y": 19.2,
+        "z": 11
+      },
+      "upstreamChecks": {
+        "pieces": 389,
+        "connections": 1375,
+        "floating": 0,
+        "floatingIds": [],
+        "collisions": 0,
+        "weak": 41,
+        "com": {
+          "x": 12,
+          "z": 3.6,
+          "inside": true,
+          "margin": 4
+        }
+      }
+    },
+    {
+      "id": "frost",
+      "sourceImage": "b-6.png",
+      "pieces": 403,
+      "connected": 403,
+      "coreId": "frost-0113",
+      "coreContacts": 10,
+      "dimensions": {
+        "x": 13,
+        "y": 20.4,
+        "z": 11
+      },
+      "upstreamChecks": {
+        "pieces": 403,
+        "connections": 1424,
+        "floating": 0,
+        "floatingIds": [],
+        "collisions": 0,
+        "weak": 30,
+        "com": {
+          "x": 12.1,
+          "z": 3.6,
+          "inside": true,
+          "margin": 4.9
+        }
+      }
+    },
+    {
+      "id": "spike",
+      "sourceImage": "c-1.png",
+      "pieces": 453,
+      "connected": 453,
+      "coreId": "spike-0178",
+      "coreContacts": 15,
+      "dimensions": {
+        "x": 13,
+        "y": 24.4,
+        "z": 11
+      },
+      "upstreamChecks": {
+        "pieces": 453,
+        "connections": 1542,
+        "floating": 0,
+        "floatingIds": [],
+        "collisions": 0,
+        "weak": 27,
+        "com": {
+          "x": 12.2,
+          "z": 3.6,
+          "inside": true,
+          "margin": 5.4
+        }
+      }
+    },
+    {
+      "id": "smoke",
+      "sourceImage": "c-2.png",
+      "pieces": 424,
+      "connected": 424,
+      "coreId": "smoke-0140",
+      "coreContacts": 6,
+      "dimensions": {
+        "x": 17,
+        "y": 20.4,
+        "z": 11
+      },
+      "upstreamChecks": {
+        "pieces": 424,
+        "connections": 1491,
+        "floating": 0,
+        "floatingIds": [],
+        "collisions": 0,
+        "weak": 33,
+        "com": {
+          "x": 10.5,
+          "z": 3.5,
+          "inside": true,
+          "margin": 4.5
+        }
+      }
+    },
+    {
+      "id": "ivory",
+      "sourceImage": "c-3.png",
+      "pieces": 377,
+      "connected": 377,
+      "coreId": "ivory-0108",
+      "coreContacts": 9,
+      "dimensions": {
+        "x": 13,
+        "y": 21.2,
+        "z": 11
+      },
+      "upstreamChecks": {
+        "pieces": 377,
+        "connections": 1384,
+        "floating": 0,
+        "floatingIds": [],
+        "collisions": 0,
+        "weak": 32,
+        "com": {
+          "x": 11.5,
+          "z": 3.6,
+          "inside": true,
+          "margin": 3.5
+        }
+      }
+    },
+    {
+      "id": "shade",
+      "sourceImage": "c-4.png",
+      "pieces": 519,
+      "connected": 519,
+      "coreId": "shade-0145",
+      "coreContacts": 4,
+      "dimensions": {
+        "x": 18,
+        "y": 23.2,
+        "z": 11
+      },
+      "upstreamChecks": {
+        "pieces": 519,
+        "connections": 1776,
+        "floating": 0,
+        "floatingIds": [],
+        "collisions": 0,
+        "weak": 59,
+        "com": {
+          "x": 12.4,
+          "z": 3.7,
+          "inside": true,
+          "margin": 3.6
+        }
+      }
+    },
+    {
+      "id": "hood",
+      "sourceImage": "c-5.png",
+      "pieces": 639,
+      "connected": 639,
+      "coreId": "hood-0225",
+      "coreContacts": 7,
+      "dimensions": {
+        "x": 19,
+        "y": 22.4,
+        "z": 11
+      },
+      "upstreamChecks": {
+        "pieces": 639,
+        "connections": 2076,
+        "floating": 0,
+        "floatingIds": [],
+        "collisions": 0,
+        "weak": 61,
+        "com": {
+          "x": 11.4,
+          "z": 3.5,
+          "inside": true,
+          "margin": 5.5
+        }
+      }
+    },
+    {
+      "id": "rust",
+      "sourceImage": "c-6.png",
+      "pieces": 398,
+      "connected": 398,
+      "coreId": "rust-0133",
+      "coreContacts": 7,
+      "dimensions": {
+        "x": 13,
+        "y": 20.4,
+        "z": 11
+      },
+      "upstreamChecks": {
+        "pieces": 398,
+        "connections": 1440,
+        "floating": 0,
+        "floatingIds": [],
+        "collisions": 0,
+        "weak": 30,
+        "com": {
+          "x": 11.3,
+          "z": 3.6,
+          "inside": true,
+          "margin": 4.7
+        }
+      }
+    },
+    {
+      "id": "prism",
+      "sourceImage": "c-7.png",
+      "pieces": 447,
+      "connected": 447,
+      "coreId": "prism-0163",
+      "coreContacts": 7,
+      "dimensions": {
+        "x": 12,
+        "y": 24.4,
+        "z": 11
+      },
+      "upstreamChecks": {
+        "pieces": 447,
+        "connections": 1602,
+        "floating": 0,
+        "floatingIds": [],
+        "collisions": 0,
+        "weak": 44,
+        "com": {
+          "x": 12.2,
+          "z": 3.6,
+          "inside": true,
+          "margin": 4.8
+        }
+      }
+    },
+    {
+      "id": "blaze",
+      "sourceImage": "c-8.png",
+      "pieces": 480,
+      "connected": 480,
+      "coreId": "blaze-0156",
+      "coreContacts": 6,
+      "dimensions": {
+        "x": 18,
+        "y": 22.4,
+        "z": 11
+      },
+      "upstreamChecks": {
+        "pieces": 480,
+        "connections": 1656,
+        "floating": 0,
+        "floatingIds": [],
+        "collisions": 0,
+        "weak": 44,
+        "com": {
+          "x": 12.1,
+          "z": 3.6,
+          "inside": true,
+          "margin": 2.9
+        }
+      }
+    },
+    {
+      "id": "halo",
+      "sourceImage": "c-9.png",
+      "pieces": 553,
+      "connected": 553,
+      "coreId": "halo-0166",
+      "coreContacts": 5,
+      "dimensions": {
+        "x": 18,
+        "y": 22.4,
+        "z": 11
+      },
+      "upstreamChecks": {
+        "pieces": 553,
+        "connections": 1910,
+        "floating": 0,
+        "floatingIds": [],
+        "collisions": 0,
+        "weak": 53,
+        "com": {
+          "x": 11.8,
+          "z": 3.7,
+          "inside": true,
+          "margin": 3.2
+        }
+      }
+    }
+  ]
+}

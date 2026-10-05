@@ -1,0 +1,121 @@
+{
+  "repository": "https://github.com/hs7j4yk4sz-boop/punk-to-bricks",
+  "commit": "15e95d6c4ed55cbc48ed3dd9a463a80fed443008",
+  "codeLicense": "MIT",
+  "codeCopyright": "Copyright (c) 2026 John Karp",
+  "imagesLicense": "Not covered by upstream code MIT license. Source images retain their respective rights.",
+  "files": [
+    {
+      "path": "LICENSE",
+      "gitBlobSha": "6feb7fc32f4cd9a18f482d053edc6be7d3fa3a2a"
+    },
+    {
+      "path": "public/examples/a-1.png",
+      "gitBlobSha": "f8736eefbfbbd56f27b6b0ac9c9327a3d284354e"
+    },
+    {
+      "path": "public/examples/b-1.png",
+      "gitBlobSha": "01b6d4fad20bdaeb4e3f0e606310d733afb78f2d"
+    },
+    {
+      "path": "public/examples/b-2.png",
+      "gitBlobSha": "db6a784715725c047655049aad95ba6fc793feae"
+    },
+    {
+      "path": "public/examples/b-3.png",
+      "gitBlobSha": "ba4a34861e90f2d02eb56bf2986bcf23bd6e549f"
+    },
+    {
+      "path": "public/examples/b-4.png",
+      "gitBlobSha": "b19ddc2deed7d19a03b00cf2b00a04a05ee84fa4"
+    },
+    {
+      "path": "public/examples/b-5.png",
+      "gitBlobSha": "328179d7dcd68c4049aeb6c203e3185eca9bb73b"
+    },
+    {
+      "path": "public/examples/b-6.png",
+      "gitBlobSha": "c7c2ca85d3019fbf9e030e874a6e0695dbef5ff8"
+    },
+    {
+      "path": "public/examples/c-1.png",
+      "gitBlobSha": "3fa1c6a67e52d4eb78fcb715eb16c556da8b751d"
+    },
+    {
+      "path": "public/examples/c-2.png",
+      "gitBlobSha": "1362883793db29f2d6f5628a7aa72b7804ad2ea4"
+    },
+    {
+      "path": "public/examples/c-3.png",
+      "gitBlobSha": "6d7ff9f01a53825f5b1ee2d9ac1a4eb17b4f2a29"
+    },
+    {
+      "path": "public/examples/c-4.png",
+      "gitBlobSha": "c6916e4f16817f35c1dce9c457d50f971b3835cc"
+    },
+    {
+      "path": "public/examples/c-5.png",
+      "gitBlobSha": "b9a162ed26bbeee6c1e9a5cb202032ae9419fa80"
+    },
+    {
+      "path": "public/examples/c-6.png",
+      "gitBlobSha": "55690c318548494ef2cac624d5a368b35b6c9129"
+    },
+    {
+      "path": "public/examples/c-7.png",
+      "gitBlobSha": "26b82b950deea02f2039edae5ee25e37a146084d"
+    },
+    {
+      "path": "public/examples/c-8.png",
+      "gitBlobSha": "d04ea2f2a6cb3ed7ca52bd787849d7693a93f996"
+    },
+    {
+      "path": "public/examples/c-9.png",
+      "gitBlobSha": "82211433d4c0c3bba5e64329681166fc96d1ad57"
+    },
+    {
+      "path": "public/examples/reference.png",
+      "gitBlobSha": "e3a58731572ddca7ba8b8fe388c5814ce9eccb48"
+    },
+    {
+      "path": "src/core/analyze.ts",
+      "gitBlobSha": "765890ff47c471a73c09cd99a4b6b31c3f11c4d4"
+    },
+    {
+      "path": "src/core/build.ts",
+      "gitBlobSha": "a8124abf2879f4d5108d84863e7ebfba2da78c93"
+    },
+    {
+      "path": "src/core/check.ts",
+      "gitBlobSha": "0d3e8969ce3b530357f2659da6ba98f39d1de9bd"
+    },
+    {
+      "path": "src/core/color.ts",
+      "gitBlobSha": "c6ab602d3903fc2c696722e7c26580600568fd90"
+    },
+    {
+      "path": "src/core/detect.ts",
+      "gitBlobSha": "ea2d249a6e5fb55d9bb8a4a7f640bf0b49a14619"
+    },
+    {
+      "path": "src/core/lego.ts",
+      "gitBlobSha": "38ae4420a715431b3b15b3a42218ccacb7223e2d"
+    },
+    {
+      "path": "src/core/palette.ts",
+      "gitBlobSha": "247f333716d2015fa615d34a0846534bbcff9dcd"
+    },
+    {
+      "path": "src/core/parts.ts",
+      "gitBlobSha": "ed1b96581293ba196ee3137123e4d31745da551f"
+    },
+    {
+      "path": "src/core/tile.ts",
+      "gitBlobSha": "74890863d3c6317f2343b922172b4b1d742b353b"
+    },
+    {
+      "path": "src/data/elements.json",
+      "gitBlobSha": "054a1f32c424f235de6f9251dd874dd3111d9215"
+    }
+  ]
+}

@@ -1,0 +1,369 @@
+import type { CharacterTemplate } from './game/types';
+import { CONFIG } from './game/config';
+import { characterPortrait as portrait } from './assets/catalog';
+import { BOT_LABELS, BOT_DIFFICULTIES, type BotStyle, type BotDifficulty } from './game/bots';
+
+type Screen = 'lobby' | 'playing' | 'collecting' | 'paused' | 'result';
+type Callbacks = {
+  onStart: (templateId: string) => void;
+  onRestart: () => void;
+  onNextRound: () => void;
+  onLobby: () => void;
+  onPause: () => void;
+  onMute: () => void;
+  onSelect: (templateId: string) => void;
+  onDamageChange: (value: number) => void;
+};
+type UpdateData = {
+  elapsed: number;
+  playerPieces: number;
+  enemyPieces: number;
+  repairs: number;
+  growth: number;
+  shots: number;
+  hits: number;
+  muted: boolean;
+  damage: number;
+  round: number;
+  playerCoreExposed: boolean;
+  enemyCoreExposed: boolean;
+  playerCoreThreshold: number;
+  enemyCoreThreshold: number;
+  dashCooldown: number;
+  dashing: boolean;
+  botStyle: BotStyle;
+  botDifficulty: BotDifficulty;
+  botPanic: boolean;
+  victoryCollected: number;
+  victoryTotal: number;
+};
+type ResultStats = { elapsed: number; repairs: number; growth: number; hits: number; direct: number; cascade: number; round: number; carriedPieces: number; basePieces: number; victoryCollected: number; victorySkipped: number };
+
+const escape = (value: string) => value.replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]!));
+const time = (seconds: number) => `${Math.floor(seconds / 60).toString().padStart(2, '0')}:${Math.floor(seconds % 60).toString().padStart(2, '0')}`;
+const icon = (name: 'arrow' | 'sound' | 'muted' | 'pause' | 'play' | 'reset') => {
+  const paths = {
+    arrow: '<path d="M5 12h14M13 6l6 6-6 6"/>',
+    sound: '<path d="M11 5 6 9H3v6h3l5 4V5Z"/><path d="M15 8a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14"/>',
+    muted: '<path d="M11 5 6 9H3v6h3l5 4V5Z"/><path d="m16 9 6 6m0-6-6 6"/>',
+    pause: '<path d="M8 5v14M16 5v14"/>',
+    play: '<path d="m8 5 11 7-11 7V5Z"/>',
+    reset: '<path d="M3 10a9 9 0 1 1 2 8M3 4v6h6"/>',
+  };
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name]}</svg>`;
+};
+
+const ROSTER_PAGE_SIZE = 6;
+const pieceWord = (count: number) => count === 1 ? 'piece' : 'pieces';
+
+function tuning(): string {
+  return `<details class="tuning"><summary>Match Settings<span aria-hidden="true">+</span></summary><div class="tuning__body"><label>Pieces removed per hit <output data-damage-output>${CONFIG.projectilePower}</output><input data-damage type="range" min="1" max="20" step="1" value="${CONFIG.projectilePower}" aria-label="Pieces removed per hit" /></label><p>Applies to both fighters. Cascades can knock off extra pieces. Reclaim your own pieces after ${CONFIG.ownPickupDelay} seconds.</p></div></details>`;
+}
+
+export class GameUI {
+  private readonly element: HTMLDivElement;
+  private readonly callbacks: Callbacks;
+  private readonly templates: CharacterTemplate[];
+  private selected: string;
+  private rosterPage = 0;
+  private screen: Screen = 'lobby';
+  private damage: number = CONFIG.projectilePower;
+
+  constructor(private readonly root: HTMLElement, templates: CharacterTemplate[], callbacks: Callbacks) {
+    this.callbacks = callbacks;
+    this.templates = templates;
+    this.selected = templates[0]?.id ?? '';
+    this.element = document.createElement('div');
+    this.element.className = 'game-ui';
+    this.element.dataset.screen = 'lobby';
+    this.element.innerHTML = `
+      <header class="topbar">
+        <div class="brand" aria-label="Punk Brick Arena"><span class="brand__mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span><span>Punk Brick<span class="brand__second">Arena</span></span></div>
+        <nav class="site-nav" aria-label="Page navigation"><a href="#play">Play</a><a href="#how-to-play">How to Play</a><a href="#about">About</a></nav>
+        <span class="mode-label"><span class="live-dot"></span>ONE ON ONE · VS. BOT</span>
+        <div class="topbar__actions"><span class="build-label">FAN MADE <span>01</span></span><button class="icon-button" data-action="mute" aria-label="Mute sound" title="Sound · M">${icon('sound')}</button><button class="icon-button" data-action="pause" aria-label="Pause" title="Pause · P / Esc" hidden>${icon('pause')}</button></div>
+      </header>
+
+      <div class="community-page" data-section="lobby">
+        <section class="play-section" id="play" aria-label="Character selection">
+          <div class="hero-copy">
+            <p class="section-kicker"><span class="pixel-dot" aria-hidden="true"></span> A COMMUNITY PLAYGROUND</p>
+            <h1>Pixels.<br>Bricks.<br><em>Play.</em></h1>
+            <p class="hero-description">Familiar punks. A whole new form. Battle a bot, collect the pieces, and build your next self.</p>
+            <div class="roster-label"><span>01 / PICK YOUR PUNK</span><span>${templates.length} PUNKS</span></div>
+            <div class="character-roster" role="group" aria-label="Characters">${templates.map((template, index) => `
+              <button class="character-card${index === 0 ? ' is-selected' : ''}" data-character="${escape(template.id)}" aria-pressed="${index === 0}"${index >= ROSTER_PAGE_SIZE ? ' hidden' : ''}>
+                <span class="character-card__image"><img src="${portrait(template.id)}" alt="" width="24" height="24" /></span>
+                <span class="character-card__info"><span class="character-card__name">${escape(template.name)}</span><span class="character-card__pieces">${template.pieces.length} pieces</span></span>
+                <span class="character-card__check" aria-hidden="true">✓</span>
+              </button>`).join('')}</div>
+            <div class="roster-pagination" aria-label="Character pages"${templates.length <= ROSTER_PAGE_SIZE ? ' hidden' : ''}>
+              <button data-action="roster-prev" aria-label="Previous characters" disabled>←</button>
+              <span data-roster-page aria-live="polite">1–${Math.min(ROSTER_PAGE_SIZE, templates.length)} of ${templates.length}</span>
+              <button data-action="roster-next" aria-label="Next characters">→</button>
+            </div>
+            <button class="primary-button play-button" data-action="start"><span>Play vs. Bot</span>${icon('arrow')}</button>
+            <p class="play-caption">Free to play · In your browser · Keyboard and mouse</p>
+            <p class="touch-note">Browse and preview punks on your phone. To play, use a computer with a keyboard and mouse.</p>
+            ${tuning()}
+          </div>
+          <div class="punk-preview" aria-label="Selected punk preview">
+            <div class="preview-toolbar"><span><span class="pixel-dot" aria-hidden="true"></span> BRICK VIEW</span><span>LIVE 3D</span></div>
+            <div class="preview-stage" data-preview-stage></div>
+            <div class="pixel-origin"><img data-selected-portrait src="${portrait(this.selected)}" alt="Original pixel portrait" width="24" height="24" /><span>PIXEL<br>TO BRICK</span><span aria-hidden="true">↗</span></div>
+            <div class="preview-caption"><div><span class="section-kicker">YOUR STARTING BUILD</span><strong data-selected-name>${escape(templates[0]?.name ?? '')}</strong><span data-selected-subtitle>${escape(templates[0]?.subtitle ?? '')}</span></div><div class="piece-count"><strong data-selected-pieces>${templates[0]?.pieces.length ?? 0}</strong><span>PIECES</span></div></div>
+          </div>
+        </section>
+
+        <div class="community-strip"><span>MORE PIECES.<br><strong>MORE POSSIBILITIES.</strong></span><div class="pixel-lineup" aria-hidden="true">${templates.slice(0, 3).map(template => `<img src="${portrait(template.id)}" alt="" width="24" height="24" />`).join('')}</div><span>MADE FOR THE LOVE OF PUNKS.<br><strong>JUST FOR FUN.</strong></span></div>
+
+        <section class="how-section" id="how-to-play" aria-labelledby="how-title">
+          <div class="section-heading"><p class="section-kicker">02 / HOW TO PLAY</p><h2 id="how-title">Easy to learn.<br>Hard to stay in one piece.</h2></div>
+          <div class="rules-grid">
+            <article><span class="step-number">01</span><h3>Break them apart</h3><p>Move, aim, and shoot. Press Space to dash. Face an easy Balanced bot first, then a medium one. From round 3, face any of the four bot styles at full strength.</p><div class="rule-controls"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><span>+ mouse</span></div></article>
+            <article><span class="step-number">02</span><h3>Build yourself back up</h3><p>Move near debris to collect it. Pieces fill gaps first, then grow your punk. Reclaim your own pieces after ${CONFIG.ownPickupDelay} seconds.</p><span class="rule-tag">REPAIR → GROW</span></article>
+            <article><span class="step-number">03</span><h3>Protect your Core</h3><p>Lose ${Math.round(CONFIG.coreProtectionLoss * 100)}% of your starting pieces and your Core stays exposed for the rest of the round. Destroy the enemy Core to win, then collect the remaining debris.</p><span class="rule-tag">WIN → COLLECT → NEXT ROUND</span></article>
+          </div>
+          <div class="keyboard-guide"><span><kbd>Space</kbd> Dash · ${CONFIG.dashCooldown} s</span><span><kbd>P</kbd> / <kbd>Esc</kbd> Pause</span><span><kbd>R</kbd> Start Over</span><span><kbd>M</kbd> Sound</span><span>Win to carry your build into the next round.</span></div>
+        </section>
+
+        <section class="about-section" id="about" aria-labelledby="about-title">
+          <div>
+            <p class="section-kicker">03 / FROM THE COMMUNITY, FOR THE COMMUNITY</p>
+            <h2 id="about-title">Remix culture.<br><em>Now playable.</em></h2>
+            <p>Punk Brick Arena is an independent fan project inspired by CryptoPunks and a love of NFT culture. It is noncommercial and has no financial motive.</p>
+            <p>Created by <a href="https://x.com/azaticus" target="_blank" rel="noopener noreferrer">@azaticus · Twitter / X ↗</a>.</p>
+            <p>Characters are built using the open-source <a href="https://github.com/hs7j4yk4sz-boop/punk-to-bricks" target="_blank" rel="noopener noreferrer">Punk to Bricks</a> generator by <a href="https://x.com/johnkarp" target="_blank" rel="noopener noreferrer">John Karp (@johnkarp)</a>. Thank you for making it possible to turn pixel punks into brick builds.</p>
+            <p>Explore the code, make changes, and fork the game. Credit to Punk Brick Arena and a link to the original project are appreciated. Third-party code and assets remain subject to their own terms.</p>
+          </div>
+          <div class="credits-list">
+            <a href="https://cryptopunks.app/" target="_blank" rel="noopener noreferrer"><span class="credit-number">01</span><span><strong>CryptoPunks</strong><small>Original punks · our inspiration</small></span><span aria-hidden="true">↗</span></a>
+            <a href="https://hs7j4yk4sz-boop.github.io/punk-to-bricks/" target="_blank" rel="noopener noreferrer"><span class="credit-number">02</span><span><strong>Punk to Bricks</strong><small>Brick generator · John Karp</small></span><span aria-hidden="true">↗</span></a>
+            <p class="project-disclaimer">Punk Brick Arena is not affiliated with, sponsored by, or endorsed by CryptoPunks or LEGO. Use of the generator does not imply its author's involvement or endorsement. Third-party code, images, and trademarks belong to their respective owners.</p>
+            <a class="credits-notices" href="/assets/ATTRIBUTION.txt" target="_blank" rel="noopener noreferrer">Third-party credits and licenses ↗</a>
+          </div>
+        </section>
+        <footer class="site-footer"><span>Punk Brick Arena <span class="footer-dot">■</span> FAN MADE, FOR FUN.</span><a href="https://x.com/azaticus" target="_blank" rel="noopener noreferrer">Twitter / X · @azaticus ↗</a><a href="#play">Back to Play ↑</a></footer>
+      </div>
+
+      <section class="match-hud" data-section="hud" aria-label="Match status" hidden>
+        <div class="fighter fighter--you"><span class="fighter__marker"></span><div><span class="fighter__label">YOUR BUILD</span><strong><span data-player-pieces>0</span><small data-player-piece-label>pieces</small></strong><span class="core-status" data-player-core>Core protected</span></div><span class="fighter__core" title="Protect your Core"><span class="core-diamond"></span></span></div>
+        <div class="match-clock" aria-label="Round and match time"><span class="match-clock__round">ROUND <b data-round>1</b></span><strong data-clock>00:00</strong></div>
+        <div class="fighter fighter--enemy"><span class="fighter__marker"></span><div><span class="fighter__label" data-bot-style>OPPONENT · BOT</span><strong><span data-enemy-pieces>0</span><small data-enemy-piece-label>pieces</small></strong><span class="core-status" data-enemy-core>Core protected</span></div></div>
+      </section>
+
+      <div class="collection-hud" data-section="hud" hidden><span class="collection-hud__icon" aria-hidden="true">+</span><div><span class="collection-hud__title">PIECES COLLECTED</span><span class="collection-hud__values"><b data-repairs>0</b> repaired <span>·</span> <b data-growth>0</b> added</span></div></div>
+      <div class="dash-hud" data-section="hud" hidden><kbd>SPACE</kbd><div><strong>DASH</strong><span data-dash-status>Ready</span></div><progress data-dash-progress max="1" value="1" aria-label="Dash readiness"></progress></div>
+      <div class="victory-collection" data-section="collecting" role="status" hidden><span class="section-kicker">VICTORY!</span><strong>Collecting your loot</strong><span><b data-victory-collected>0</b> / <b data-victory-total>0</b> <span data-victory-piece-label>pieces</span></span><progress data-victory-progress max="1" value="0" aria-label="Victory collection"></progress><small>Repair first. Then grow.</small></div>
+
+      <footer class="controls-bar" data-section="hud" hidden><div class="control-hint"><span class="key-group"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span><span>move</span></div><span class="control-divider"></span><div class="control-hint"><span class="mouse-icon" aria-hidden="true"></span><span>aim & fire</span></div><div class="control-hint control-hint--extra"><kbd>P</kbd><span>pause</span><kbd>R</kbd><span>restart</span></div><span class="controls-bar__note">MOVE NEAR PIECES TO COLLECT THEM</span></footer>
+
+      <div class="modal-backdrop" data-section="paused" hidden><section class="modal pause-modal" role="dialog" aria-modal="true" aria-labelledby="pause-title"><div class="modal-brick" aria-hidden="true">Ⅱ</div><span class="eyebrow">TAKE YOUR TIME</span><h2 id="pause-title">Take a<br>build break.</h2><p>Your build can wait. So can your opponent.</p><button class="primary-button" data-action="resume"><span>Resume</span>${icon('play')}</button><button class="secondary-button" data-action="restart">${icon('reset')}Start Over</button><button class="secondary-button" data-action="lobby">Choose Character</button>${tuning()}</section></div>
+
+      <div class="modal-backdrop" data-section="result" hidden><section class="modal result-modal" role="dialog" aria-modal="true" aria-labelledby="result-title">
+        <div class="result-badge" data-result-badge>VICTORY</div><h2 id="result-title">You Win!</h2>
+        <p data-result-description>Enemy Core destroyed. Your mutant keeps growing.</p>
+        <div class="result-survivor" data-result-survivor><span>YOUR MUTANT</span><strong><b data-carried-pieces>0</b> <small data-carried-piece-label>pieces</small></strong><span data-size-ratio></span></div>
+        <div class="result-stats"><div><strong data-result-repairs>0</strong><span>REPAIRED</span></div><div><strong data-result-growth>0</strong><span>ADDED</span></div><div><strong data-result-direct>0</strong><span title="Enemy pieces removed by your shots">SHOT OFF</span></div><div><strong data-result-cascade>0</strong><span title="Enemy pieces detached in cascades">BROKE LOOSE</span></div></div>
+        <div class="result-caption"><span>TIME <b data-result-time>00:00</b></span><span>HITS <b data-result-hits>0</b></span></div>
+        <p class="victory-bonus" data-victory-bonus></p>
+        <button class="primary-button round-action" data-action="next"><span><strong>Next Round</strong><small data-next-round-note>Keep your mutant · next round</small></span>${icon('arrow')}</button>
+        <button class="secondary-button round-action round-action--new" data-action="restart"><span><strong>Start Over</strong><small>Back to base form · round 1</small></span>${icon('reset')}</button>
+        <button class="secondary-button" data-action="lobby">Choose Character</button>
+        <p class="result-footnote" data-result-footnote>Only attached pieces carry into the next round.</p>
+      </section></div>
+
+      <div class="toast-stack" aria-live="polite" aria-atomic="false"></div>
+    `;
+    root.append(this.element);
+    this.element.addEventListener('click', (event) => {
+      const target = (event.target as Element).closest<HTMLButtonElement>('button');
+      if (!target) return;
+      if (target.dataset.character) {
+        this.select(target.dataset.character);
+        return;
+      }
+      switch (target.dataset.action) {
+        case 'roster-prev': this.showRosterPage(this.rosterPage - 1); break;
+        case 'roster-next': this.showRosterPage(this.rosterPage + 1); break;
+        case 'start': this.callbacks.onStart(this.selected); break;
+        case 'restart': this.callbacks.onRestart(); break;
+        case 'next': this.callbacks.onNextRound(); break;
+        case 'lobby': this.callbacks.onLobby(); break;
+        case 'pause':
+        case 'resume': this.callbacks.onPause(); break;
+        case 'mute': this.callbacks.onMute(); break;
+      }
+    });
+    this.element.addEventListener('input', (event) => {
+      const target = event.target as HTMLInputElement;
+      if (!target.matches('[data-damage]')) return;
+      this.damage = Math.max(1, Math.min(20, Math.round(Number(target.value))));
+      this.syncDamage();
+      this.callbacks.onDamageChange(this.damage);
+    });
+    this.element.addEventListener('keydown', (event) => {
+      if (event.key !== 'Tab' || (this.screen !== 'paused' && this.screen !== 'result')) return;
+      const dialog = this.element.querySelector<HTMLElement>(`[data-section="${this.screen}"] .modal`)!;
+      const controls = [...dialog.querySelectorAll<HTMLElement>('button, input, summary')].filter((control) => control.getClientRects().length > 0 && !control.matches(':disabled'));
+      const first = controls[0], last = controls[controls.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault(); last?.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault(); first?.focus();
+      }
+    });
+  }
+
+  private showRosterPage(page: number): void {
+    const lastPage = Math.ceil(this.templates.length / ROSTER_PAGE_SIZE) - 1;
+    this.rosterPage = Math.max(0, Math.min(lastPage, page));
+    const start = this.rosterPage * ROSTER_PAGE_SIZE;
+    this.element.querySelectorAll<HTMLButtonElement>('[data-character]').forEach((card, index) => {
+      card.hidden = index < start || index >= start + ROSTER_PAGE_SIZE;
+    });
+    this.setText('[data-roster-page]', `${start + 1}–${Math.min(start + ROSTER_PAGE_SIZE, this.templates.length)} of ${this.templates.length}`);
+    this.element.querySelector<HTMLButtonElement>('[data-action="roster-prev"]')!.disabled = this.rosterPage === 0;
+    this.element.querySelector<HTMLButtonElement>('[data-action="roster-next"]')!.disabled = this.rosterPage === lastPage;
+  }
+
+  private select(id: string): void {
+    const template = this.templates.find((candidate) => candidate.id === id);
+    if (!template) return;
+    this.selected = id;
+    this.element.querySelectorAll<HTMLButtonElement>('[data-character]').forEach((card) => {
+      const selected = card.dataset.character === id;
+      card.classList.toggle('is-selected', selected);
+      card.setAttribute('aria-pressed', String(selected));
+    });
+    this.setText('[data-selected-name]', template.name);
+    this.setText('[data-selected-subtitle]', template.subtitle);
+    this.setText('[data-selected-pieces]', template.pieces.length);
+    this.element.querySelector<HTMLImageElement>('[data-selected-portrait]')!.src = portrait(id);
+    this.callbacks.onSelect(id);
+  }
+
+  setScreen(screen: Screen): void {
+    const changed = this.screen !== screen;
+    this.screen = screen;
+    this.element.dataset.screen = screen;
+    const canvas = this.root.querySelector<HTMLCanvasElement>('#arena')!;
+    const host = screen === 'lobby' ? this.element.querySelector<HTMLElement>('[data-preview-stage]')! : this.root;
+    if (canvas.parentElement !== host) host.prepend(canvas);
+    canvas.tabIndex = screen === 'lobby' ? -1 : 0;
+    canvas.setAttribute('aria-label', screen === 'lobby' ? '3D preview of your selected punk' : 'Game arena: WASD or arrow keys to move, mouse to aim, left click to fire, Space to dash');
+    if (changed && screen === 'lobby') this.element.scrollTop = 0;
+    this.element.querySelector<HTMLElement>('.topbar')!.inert = screen === 'paused' || screen === 'result';
+    this.element.querySelectorAll<HTMLElement>('[data-section]').forEach((section) => {
+      const name = section.dataset.section;
+      section.hidden = name === 'preview' ? screen !== 'lobby' : name === 'hud' ? screen === 'lobby' : name !== screen;
+    });
+    const pauseButton = this.element.querySelector<HTMLButtonElement>('[data-action="pause"]')!;
+    pauseButton.hidden = screen === 'lobby' || screen === 'result';
+    pauseButton.innerHTML = icon(screen === 'paused' ? 'play' : 'pause');
+    pauseButton.setAttribute('aria-label', screen === 'paused' ? 'Resume game' : 'Pause');
+    if (screen === 'paused' || screen === 'result') {
+      requestAnimationFrame(() => [...this.element.querySelectorAll<HTMLButtonElement>(`[data-section="${screen}"] .primary-button`)]
+        .find(button => !button.hidden && !button.disabled)?.focus({ preventScroll: true }));
+    } else if (changed && document.activeElement instanceof HTMLElement && this.element.contains(document.activeElement)) {
+      document.activeElement.blur();
+    }
+  }
+
+  update(data: UpdateData): void {
+    this.setText('[data-player-pieces]', data.playerPieces);
+    this.setText('[data-enemy-pieces]', data.enemyPieces);
+    this.setText('[data-player-piece-label]', pieceWord(data.playerPieces));
+    this.setText('[data-enemy-piece-label]', pieceWord(data.enemyPieces));
+    this.setText('[data-repairs]', data.repairs);
+    this.setText('[data-growth]', data.growth);
+    this.setText('[data-clock]', time(data.elapsed));
+    this.setText('[data-round]', data.round);
+    const difficultyLabel = data.botDifficulty === 'normal' ? '' : ` · ${BOT_DIFFICULTIES[data.botDifficulty].name.toUpperCase()}`;
+    this.setText('[data-bot-style]', `${BOT_LABELS[data.botStyle].name.toUpperCase()}${difficultyLabel}${data.botPanic ? ' · RAPID FIRE' : ''}`);
+    this.element.querySelector<HTMLElement>('[data-bot-style]')!.title = `${BOT_LABELS[data.botStyle].description} ${BOT_DIFFICULTIES[data.botDifficulty].name}.`;
+    this.element.querySelector<HTMLElement>('[data-bot-style]')!.classList.toggle('is-panic', data.botPanic);
+    this.setText('[data-dash-status]', data.dashing ? 'Dashing!' : data.dashCooldown > 0 ? `${data.dashCooldown.toFixed(1)} s` : 'Ready');
+    this.element.querySelector<HTMLProgressElement>('[data-dash-progress]')!.value = 1 - data.dashCooldown / CONFIG.dashCooldown;
+    this.element.querySelector<HTMLElement>('.dash-hud')!.classList.toggle('is-ready', data.dashCooldown <= 0);
+    this.setText('[data-victory-collected]', data.victoryCollected);
+    this.setText('[data-victory-total]', data.victoryTotal);
+    this.setText('[data-victory-piece-label]', pieceWord(data.victoryTotal));
+    this.element.querySelector<HTMLProgressElement>('[data-victory-progress]')!.value = data.victoryTotal ? data.victoryCollected / data.victoryTotal : 1;
+    for (const [selector, exposed, count, threshold] of [
+      ['[data-player-core]', data.playerCoreExposed, data.playerPieces, data.playerCoreThreshold],
+      ['[data-enemy-core]', data.enemyCoreExposed, data.enemyPieces, data.enemyCoreThreshold],
+    ] as const) {
+      const status = this.element.querySelector<HTMLElement>(selector)!;
+      this.setText(selector, count === 0 ? 'Core destroyed' : exposed ? 'Core exposed!' : 'Core protected');
+      status.classList.toggle('is-exposed', exposed);
+      status.title = exposed ? 'This Core stays exposed for the rest of this round' : `Core protection ends at ${threshold} ${pieceWord(threshold)} or fewer`;
+    }
+    if (this.damage !== data.damage) {
+      this.damage = data.damage;
+      this.syncDamage();
+    }
+    this.setMuted(data.muted);
+  }
+
+  showResult(won: boolean, stats: ResultStats): void {
+    this.element.classList.toggle('is-win', won);
+    this.setText('[data-result-badge]', `ROUND ${stats.round} · ${won ? 'VICTORY' : 'DEFEAT'}`);
+    this.setText('#result-title', won ? 'Victory!' : 'Ready to rebuild?');
+    this.setText('[data-result-description]', won ? 'Enemy Core destroyed. Loot collected. Your mutant is ready for the next round.' : 'Your Core was destroyed. Start a new run with your base build.');
+    this.element.querySelector<HTMLElement>('[data-victory-bonus]')!.hidden = !won;
+    this.setText('[data-victory-bonus]', `Victory loot: +${stats.victoryCollected} ${pieceWord(stats.victoryCollected)}${stats.victorySkipped ? ` · ${stats.victorySkipped} left behind` : ''}`);
+    this.element.querySelector<HTMLElement>('[data-result-survivor]')!.hidden = !won;
+    this.setText('[data-carried-pieces]', stats.carriedPieces);
+    this.setText('[data-carried-piece-label]', pieceWord(stats.carriedPieces));
+    this.setText('[data-size-ratio]', `${(stats.carriedPieces / stats.basePieces).toFixed(2)}× your starting piece count`);
+    this.setText('[data-next-round-note]', `Keep your mutant · round ${stats.round + 1}`);
+    const next = this.element.querySelector<HTMLButtonElement>('[data-action="next"]')!;
+    next.hidden = !won;
+    next.disabled = !won;
+    const restart = this.element.querySelector<HTMLButtonElement>('[data-section="result"] [data-action="restart"]')!;
+    restart.classList.toggle('primary-button', !won);
+    restart.classList.toggle('secondary-button', won);
+    this.setText('[data-result-footnote]', won ? 'Your attached pieces and damage carry over. The next opponent starts with a fresh build.' : 'Win with your Core intact to carry your mutant into the next round.');
+    this.setText('[data-result-repairs]', stats.repairs);
+    this.setText('[data-result-growth]', stats.growth);
+    this.setText('[data-result-direct]', stats.direct);
+    this.setText('[data-result-cascade]', stats.cascade);
+    this.setText('[data-result-time]', time(stats.elapsed));
+    this.setText('[data-result-hits]', stats.hits);
+    this.setScreen('result');
+  }
+
+  toast(message: string, kind: 'hit' | 'repair' | 'growth' = 'hit'): void {
+    if (this.screen !== 'playing') return;
+    const stack = this.element.querySelector('.toast-stack')!;
+    while (stack.children.length >= 3) stack.firstElementChild?.remove();
+    const toast = document.createElement('div');
+    toast.className = `toast toast--${kind}`;
+    const mark = document.createElement('span');
+    mark.className = 'toast__mark';
+    mark.textContent = kind === 'hit' ? '↗' : '+';
+    toast.append(mark, document.createTextNode(message));
+    stack.append(toast);
+    window.setTimeout(() => toast.remove(), 2100);
+  }
+
+  setMuted(muted: boolean): void {
+    const button = this.element.querySelector<HTMLButtonElement>('[data-action="mute"]')!;
+    if (button.dataset.muted === String(muted)) return;
+    button.dataset.muted = String(muted);
+    button.innerHTML = icon(muted ? 'muted' : 'sound');
+    button.setAttribute('aria-label', muted ? 'Unmute sound' : 'Mute sound');
+    button.setAttribute('aria-pressed', String(muted));
+  }
+
+  private syncDamage(): void {
+    this.element.querySelectorAll<HTMLInputElement>('[data-damage]').forEach((input) => { input.value = String(this.damage); });
+    this.element.querySelectorAll<HTMLOutputElement>('[data-damage-output]').forEach((output) => { output.value = String(this.damage); });
+  }
+
+  private setText(selector: string, value: string | number): void {
+    const element = this.element.querySelector<HTMLElement>(selector);
+    if (element && element.textContent !== String(value)) element.textContent = String(value);
+  }
+}

@@ -1,0 +1,160 @@
+{
+  "checks": [
+    {
+      "id": "mosher-2",
+      "pieces": 3341,
+      "stock": 3813,
+      "prefixes": [
+        {
+          "fraction": 0,
+          "installed": 423,
+          "bank": 6731,
+          "connected": 423
+        },
+        {
+          "fraction": 0.25,
+          "installed": 1153,
+          "bank": 6001,
+          "connected": 1153
+        },
+        {
+          "fraction": 0.5,
+          "installed": 1882,
+          "bank": 5272,
+          "connected": 1882
+        },
+        {
+          "fraction": 0.75,
+          "installed": 2612,
+          "bank": 4542,
+          "connected": 2612
+        },
+        {
+          "fraction": 1,
+          "installed": 3341,
+          "bank": 3813,
+          "connected": 3341
+        }
+      ],
+      "sourceDimensionsColorsAndShapesPreserved": true,
+      "bankBalanced": true
+    },
+    {
+      "id": "mosher-3",
+      "pieces": 10141,
+      "stock": 16005,
+      "prefixes": [
+        {
+          "fraction": 0,
+          "installed": 423,
+          "bank": 25723,
+          "connected": 423
+        },
+        {
+          "fraction": 0.25,
+          "installed": 2853,
+          "bank": 23293,
+          "connected": 2853
+        },
+        {
+          "fraction": 0.5,
+          "installed": 5282,
+          "bank": 20864,
+          "connected": 5282
+        },
+        {
+          "fraction": 0.75,
+          "installed": 7712,
+          "bank": 18434,
+          "connected": 7712
+        },
+        {
+          "fraction": 1,
+          "installed": 10141,
+          "bank": 16005,
+          "connected": 10141
+        }
+      ],
+      "sourceDimensionsColorsAndShapesPreserved": true,
+      "bankBalanced": true
+    },
+    {
+      "id": "guitar-2",
+      "pieces": 2708,
+      "stock": 1162,
+      "prefixes": [
+        {
+          "fraction": 0,
+          "installed": 423,
+          "bank": 3447,
+          "connected": 423
+        },
+        {
+          "fraction": 0.25,
+          "installed": 994,
+          "bank": 2876,
+          "connected": 994
+        },
+        {
+          "fraction": 0.5,
+          "installed": 1566,
+          "bank": 2304,
+          "connected": 1566
+        },
+        {
+          "fraction": 0.75,
+          "installed": 2137,
+          "bank": 1733,
+          "connected": 2137
+        },
+        {
+          "fraction": 1,
+          "installed": 2708,
+          "bank": 1162,
+          "connected": 2708
+        }
+      ],
+      "sourceDimensionsColorsAndShapesPreserved": true,
+      "bankBalanced": true
+    },
+    {
+      "id": "guitar-3",
+      "pieces": 4507,
+      "stock": 4597,
+      "prefixes": [
+        {
+          "fraction": 0,
+          "installed": 423,
+          "bank": 8681,
+          "connected": 423
+        },
+        {
+          "fraction": 0.25,
+          "installed": 1444,
+          "bank": 7660,
+          "connected": 1444
+        },
+        {
+          "fraction": 0.5,
+          "installed": 2465,
+          "bank": 6639,
+          "connected": 2465
+        },
+        {
+          "fraction": 0.75,
+          "installed": 3486,
+          "bank": 5618,
+          "connected": 3486
+        },
+        {
+          "fraction": 1,
+          "installed": 4507,
+          "bank": 4597,
+          "connected": 4507
+        }
+      ],
+      "sourceDimensionsColorsAndShapesPreserved": true,
+      "bankBalanced": true
+    }
+  ]
+}
