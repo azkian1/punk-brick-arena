@@ -1,3 +1,5 @@
+import { assetUrl } from './url';
+
 /** All 17 examples from the pinned Punk to Bricks revision, in roster order. */
 export const CHARACTER_CATALOG = [
   { file: 'reference', id: 'violet', name: 'VIOLET', subtitle: 'Purple cap', accent: '#be93ff' },
@@ -19,9 +21,9 @@ export const CHARACTER_CATALOG = [
   { file: 'c-9', id: 'halo', name: 'HALO', subtitle: 'Blond curls', accent: '#f2dfa2' },
 ] as const;
 
-const portraits = new Map(CHARACTER_CATALOG.map(entry => [entry.id as string, `/assets/source/${entry.file}.png`]));
+const portraits = new Map(CHARACTER_CATALOG.map(entry => [entry.id as string, `source/${entry.file}.png`]));
 export function characterPortrait(id: string): string {
   const path = portraits.get(id);
   if (!path) throw new Error(`Unknown character portrait: ${id}`);
-  return path;
+  return assetUrl(path);
 }

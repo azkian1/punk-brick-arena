@@ -27,6 +27,12 @@ export function forbiddenPublishedPath(path) {
     || /\.(?:map|ts|tsx|log)$/i.test(path) || /^(?:package(?:-lock)?\.json|vite\.config\.|tsconfig\.json)/i.test(parts.at(-1));
 }
 
+export function hasLocalProductionEntry(html, base = '/') {
+  const entry = /<script\b[^>]*src="([^"]+)"/i.exec(html)?.[1];
+  const prefix = `${base}assets/`;
+  return !!entry?.startsWith(prefix) && /^[A-Za-z0-9_-]+\.js$/.test(entry.slice(prefix.length));
+}
+
 async function inspectTree(root, production, findings) {
   let count = 0;
   async function walk(directory) {
@@ -65,7 +71,7 @@ async function main() {
   if (csp && /<(?:script|link)\b/i.test(html.slice(0, csp.index))) findings.push('dist/index.html: CSP appears after a resource tag');
   if (/\bon\w+\s*=/i.test(html) || /<script\b(?![^>]*\bsrc=)[^>]*>\s*\S/i.test(html)) findings.push('dist/index.html: inline script or event handler');
   if (!/<meta\s+name="referrer"\s+content="no-referrer"/i.test(html)) findings.push('dist/index.html: no-referrer meta missing');
-  if (!/<script\b[^>]*src="\/assets\/[^"<>]+\.js"/i.test(html)) findings.push('dist/index.html: expected local production entry missing');
+  if (!hasLocalProductionEntry(html, process.env.DEPLOY_BASE_PATH || '/')) findings.push('dist/index.html: expected local production entry missing');
   if (findings.length) {
     console.error(findings.join('\n'));
     process.exitCode = 1;

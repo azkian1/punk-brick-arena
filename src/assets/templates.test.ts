@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { CHARACTER_TEMPLATES } from './templates';
 import { CHARACTER_CATALOG, characterPortrait } from './catalog';
 import provenance from './provenance.json';
@@ -31,10 +31,21 @@ describe('offline source assets', () => {
       const file = CHARACTER_CATALOG[index].file;
       expect(template.source).toBe(`${provenance.repository}/blob/${provenance.commit}/public/examples/${file}.png`);
       const portrait = characterPortrait(template.id);
-      expect(portrait).toBe(`/assets/source/${file}.png`);
-      const png = readFileSync(new URL(`../../public${portrait}`, import.meta.url));
+      expect(portrait).toBe(`${import.meta.env.BASE_URL}assets/source/${file}.png`);
+      const png = readFileSync(new URL(`../../public/assets/source/${file}.png`, import.meta.url));
       const hash = createHash('sha1').update(`blob ${png.length}\0`).update(png).digest('hex');
       expect(hash).toBe(provenance.files.find(entry => entry.path === `public/examples/${file}.png`)?.gitBlobSha);
+    }
+  });
+
+  it('keeps all portrait URLs within the GitHub Pages project path', () => {
+    vi.stubEnv('BASE_URL', '/punk-brick-arena/');
+    try {
+      for (const entry of CHARACTER_CATALOG) {
+        expect(characterPortrait(entry.id)).toBe(`/punk-brick-arena/assets/source/${entry.file}.png`);
+      }
+    } finally {
+      vi.unstubAllEnvs();
     }
   });
 

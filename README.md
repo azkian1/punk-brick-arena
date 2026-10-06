@@ -4,6 +4,8 @@ A browser arena prototype where one player fights a bot using destructible brick
 
 Built with TypeScript, Three.js, and Vite. The game runs in the browser with local assets and no backend or accounts. The interface and project documentation are in English.
 
+**[Play Punk Brick Arena](https://azkian1.github.io/punk-brick-arena/)** in a desktop browser with a keyboard and mouse.
+
 ## About the project
 
 Punk Brick Arena is an independent, noncommercial fan project inspired by CryptoPunks, created purely for NFT culture with no financial interest. It is not affiliated with, sponsored by, or endorsed by CryptoPunks or LEGO.
@@ -95,7 +97,7 @@ Combat uses planar collision even though characters are rendered in 3D. Pointing
 | `npm run preview` | Serve the production build locally; run the build first |
 | `npm run assets:generate` | Regenerate all character templates and diagnostics from local PNGs |
 
-For production preview, use the URL printed by Vite. Deploy the complete `dist/` directory to a static host. Audio and portrait paths currently assume hosting at the domain root; subdirectory hosting requires path changes. See [Development](docs/DEVELOPMENT.md).
+For production preview, use the URL printed by Vite. GitHub Pages publishes the game automatically after tests, build, and publication checks pass on `main`. Other static hosts can serve the complete `dist/` directory; set `DEPLOY_BASE_PATH` when deploying below a path prefix. See [Development](docs/DEVELOPMENT.md).
 
 ## Project layout
 

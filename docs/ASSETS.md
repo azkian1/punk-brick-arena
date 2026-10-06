@@ -53,7 +53,7 @@ Every character is selectable and can be an opponent when a different template i
 
 Bot style, difficulty, and evolution path are assigned independently of the character template. Aggressor, Collector, Sniper, and Balanced behavior share this same roster; no separate bot head models or portraits are generated for the opening difficulty tiers. Next Round carries the player's attached geometry and reserve in memory without writing either back into asset JSON. Movement, menu, and bot-rule changes do not require asset regeneration unless they also change the catalog, importer, or geometry format.
 
-The lobby uses the catalog portrait for both the selected source-image inset and the character card, and renders the matching generated model in the shared WebGL preview. Its About section links to the creator, CryptoPunks, the original Punk to Bricks generator/author, and `/assets/ATTRIBUTION.txt`. These links are UI content in `src/ui.ts`; generation does not maintain them. Keep the README credits, lobby credits, and distributed notices consistent when changing provenance.
+The lobby uses the catalog portrait for both the selected source-image inset and the character card, and renders the matching generated model in the shared WebGL preview. Its About section links to the creator, CryptoPunks, the original Punk to Bricks generator/author, and `assets/ATTRIBUTION.txt` beneath the configured deployment base. Runtime local asset URLs use `src/assets/url.ts`. These links are UI content in `src/ui.ts`; generation does not maintain them. Keep the README credits, lobby credits, and distributed notices consistent when changing provenance.
 
 ## Regenerating templates
 

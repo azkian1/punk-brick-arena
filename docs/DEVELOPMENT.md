@@ -113,7 +113,18 @@ npm run preview
 
 Upload the complete contents of `dist/` to a static host, preserving relative file layout. Vite includes compiled JavaScript/CSS and copies `public/`, including portraits, audio, and `assets/ATTRIBUTION.txt`. No application backend is needed.
 
-The current source uses root-absolute `/assets/...` URLs for portraits and audio and the default Vite base. Hosting at the domain root is the supported configuration. Hosting below a path prefix requires updating both Vite's base and those asset URLs, then checking the built site; changing the base alone does not rewrite hardcoded runtime paths.
+The live game is hosted at https://azkian1.github.io/punk-brick-arena/. The `.github/workflows/deploy.yml` workflow runs on pushes to `main` and can be started manually. It installs locked dependencies, runs tests, builds the game, checks publication output, and deploys only `dist/`. GitHub Pages must use **GitHub Actions** as its publishing source.
+
+Vite reads `DEPLOY_BASE_PATH`, defaulting to `/`. Runtime portraits, audio, and the attribution link share `import.meta.env.BASE_URL` through `src/assets/url.ts`. The workflow gets the path from GitHub Pages metadata, so the build supports project paths and domain-root hosting. For a local Pages-equivalent check in PowerShell:
+
+```powershell
+$env:DEPLOY_BASE_PATH = '/punk-brick-arena/'
+npm run build
+npm run security:check
+npm run preview
+```
+
+Open `http://127.0.0.1:4173/punk-brick-arena/`. Keep the same base for build, publication checks, and preview. Remove the environment variable to restore the default root build. The custom development server continues to serve at `/`.
 
 The development and preview servers bind to `127.0.0.1`. They are local inspection tools. The custom development server has a fixed strict port and does not silently choose another port. The production HTML carries a Content Security Policy; preview additionally applies HTTP security headers. A static hosting provider must configure its own response headers, including `frame-ancestors`, which cannot be enforced by an HTML meta policy. See [Security audit](SECURITY_AUDIT.md) for the tested scope and hosting limitations.
 
@@ -140,7 +151,7 @@ When rules, configuration, scripts, or assets change, update the corresponding d
 | Opening `index.html` directly does not run the game | Use the dev server or build/preview commands; raw TypeScript is not a standalone `file://` application |
 | WebGL error screen | Check browser WebGL support and hardware acceleration; the page includes a reload action |
 | Silent combat | Start/resume with a user gesture, check mute, and inspect requests for the three local audio files |
-| Missing portraits/audio on a hosted site | Check `/assets/` requests, domain-root hosting, and whether the complete `dist/` was uploaded |
+| Missing portraits/audio on a hosted site | Check that asset requests include the configured `DEPLOY_BASE_PATH` and the complete `dist/` was uploaded |
 | Fight pauses after changing tabs | This is intentional; resume after returning |
 | P/Escape or another game shortcut does nothing while adjusting damage | Form inputs bypass game shortcuts; leave the slider or use the Resume button |
 | Space activates a menu control instead of dashing | Native button/link/settings keyboard handling takes priority; dash is available only during combat |

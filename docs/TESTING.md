@@ -4,6 +4,8 @@ The maintained automated suite uses Vitest and runs in Node. It exercises struct
 
 ## Audit verification on 2026-10-06
 
+The GitHub Pages deployment follow-up passed **200 tests in 14 files**, the production build with `DEPLOY_BASE_PATH=/punk-brick-arena/`, and all three Node publication guards. The extra asset test covers portrait URLs beneath a project prefix; the new publication guard rejects an entry script outside that prefix. The dated audit results below retain their original counts and scope.
+
 The accepted integrated serial audit run passed **199 tests in 14 files** with Vitest 4.1.11 in 58.11 seconds. After the debris-stacking fix, the same 199 tests in 14 files passed again; that run overlapped active local browser work and took 119.35 seconds, so its duration is not a performance reference. The current production build passed strict TypeScript checking and Vite compilation. Its JavaScript bundle is 2,612.62 kB minified / 408.94 kB gzip; the existing large-chunk warning remains. Initial sandbox attempts failed with filesystem `EPERM` before checking the application; the successful retries are the accepted results.
 
 The new maintained gameplay audit adds 22 cases: 100 deterministic API rounds across five paths, invalid stock rejection, attachment-capacity storage, reserve ID collision/cache handling, five complete-body Core cascades, five blueprint/spatial connectivity comparisons, and an adversarial sub-epsilon geometry fallback. Three renderer tests compare exact picking against Three.js across the roster, growth, damage, gaps, transformed roots, and clipping distances. Earlier case counts below are dated historical results.
@@ -38,7 +40,7 @@ npm test
 npm run build
 ```
 
-The build performs strict TypeScript checking for `src/` before producing `dist/`. Tests are a separate command. There is no configured CI workflow or coverage threshold in this snapshot.
+The build performs strict TypeScript checking for `src/` before producing `dist/`. Tests are a separate command. The GitHub Pages workflow now runs tests, build, and publication guards before deployment on each push to `main`; no coverage threshold is configured.
 
 If the 15-round stress case exceeds its 30-second timeout during a parallel run, retry without file parallelism:
 

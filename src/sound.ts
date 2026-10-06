@@ -1,9 +1,11 @@
+import { assetUrl } from './assets/url';
+
 type SoundKind = 'shot' | 'hit' | 'pickup' | 'cascade' | 'win' | 'lose';
 type SampleKind = 'shot' | 'hit' | 'cascade';
 const SAMPLE_URLS: Record<SampleKind, string> = {
-  shot: '/assets/audio/gunshot.wav',
-  hit: '/assets/audio/impact.ogg',
-  cascade: '/assets/audio/debris.ogg',
+  shot: assetUrl('audio/gunshot.wav'),
+  hit: assetUrl('audio/impact.ogg'),
+  cascade: assetUrl('audio/debris.ogg'),
 };
 
 export class Sound {

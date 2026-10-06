@@ -55,7 +55,9 @@ Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()
 
 No hosting provider configuration or deployed URL was found. A remote host must configure equivalent HTTP headers itself; Vite preview settings do not travel with `dist/`. In particular, CSP `frame-ancestors` is ignored in a meta element, so remote protection against framing is unverified. HTTPS, TLS settings, redirects, MIME types, CDN rules, caching and live response headers also remain unverified. Enable HSTS only at the actual HTTPS host with an appropriate domain policy.
 
-Publish only the complete `dist/` directory at a domain root. Publishing the repository root would expose development files and is outside the reviewed output. The default build contains local portraits/audio, licenses, the HTML entry and bundled JavaScript/CSS; it does not include the prototype viewer or source tree.
+Publish only the complete `dist/` directory. Publishing the repository root as the website would expose development files and is outside the reviewed output. The default build contains local portraits/audio, licenses, the HTML entry and bundled JavaScript/CSS; it does not include the prototype viewer or source tree.
+
+Deployment follow-up: `.github/workflows/deploy.yml` now publishes `dist/` to GitHub Pages after tests, build, and publication checks. `DEPLOY_BASE_PATH` supports the `/punk-brick-arena/` project path, and the entry check rejects paths outside that prefix. The earlier remote-host findings above describe the original audit snapshot; the workflow does not install custom HTTP headers on GitHub Pages. The HTML CSP and referrer policy remain in the deployed build. GitHub Pages is configured to enforce HTTPS on its default domain.
 
 ## Credential and output checks
 

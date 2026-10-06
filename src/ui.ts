@@ -2,6 +2,7 @@ import type { CharacterTemplate, EvolutionId } from './game/types';
 import { EVOLUTIONS, EVOLUTION_THRESHOLD, type evolutionProgress } from './game/evolution';
 import { CONFIG } from './game/config';
 import { characterPortrait as portrait } from './assets/catalog';
+import { assetUrl } from './assets/url';
 import { BOT_LABELS, BOT_DIFFICULTIES, type BotStyle, type BotDifficulty } from './game/bots';
 
 type Screen = 'lobby' | 'playing' | 'collecting' | 'paused' | 'result';
@@ -160,7 +161,7 @@ export class GameUI {
             <a href="https://cryptopunks.app/" target="_blank" rel="noopener noreferrer"><span class="credit-number">01</span><span><strong>CryptoPunks</strong><small>Original punks · our inspiration</small></span><span aria-hidden="true">↗</span></a>
             <a href="https://hs7j4yk4sz-boop.github.io/punk-to-bricks/" target="_blank" rel="noopener noreferrer"><span class="credit-number">02</span><span><strong>Punk to Bricks</strong><small>Brick generator · John Karp</small></span><span aria-hidden="true">↗</span></a>
             <p class="project-disclaimer">Punk Brick Arena is not affiliated with, sponsored by, or endorsed by CryptoPunks or LEGO. Use of the generator does not imply its author's involvement or endorsement. Third-party code, images, and trademarks belong to their respective owners.</p>
-            <a class="credits-notices" href="/assets/ATTRIBUTION.txt" target="_blank" rel="noopener noreferrer">Third-party credits and licenses ↗</a>
+            <a class="credits-notices" href="${assetUrl('ATTRIBUTION.txt')}" target="_blank" rel="noopener noreferrer">Third-party credits and licenses ↗</a>
           </div>
         </section>
         <footer class="site-footer"><span>Punk Brick Arena <span class="footer-dot">■</span> FAN MADE, FOR FUN.</span><a href="https://x.com/azaticus" target="_blank" rel="noopener noreferrer">Twitter / X · @azaticus ↗</a><a href="#play">Back to Play ↑</a></footer>

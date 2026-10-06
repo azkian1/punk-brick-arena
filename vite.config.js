@@ -2,6 +2,7 @@ import { defineConfig } from 'vite';
 import { CONTENT_SECURITY_POLICY, SECURITY_HEADERS } from './scripts/security-policy.mjs';
 
 export default defineConfig({
+  base: process.env.DEPLOY_BASE_PATH || '/',
   build: { sourcemap: false },
   preview: { host: '127.0.0.1', headers: SECURITY_HEADERS },
   plugins: [{
