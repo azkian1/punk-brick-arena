@@ -23,6 +23,26 @@ export interface Structure {
   revision: number;
   roundStartPieces: number;
   coreExposed: boolean;
+  evolution?: EvolutionState;
+}
+export type EvolutionId = 'mosher' | 'guitar' | 'spider' | 'bass' | 'frontman';
+export interface EvolutionPlan {
+  id: EvolutionId;
+  stage: 2 | 3;
+  neckY: number;
+  headCount: number;
+  slots: Piece[];
+  neighbors: number[][];
+}
+export interface EvolutionState {
+  id: EvolutionId;
+  stage: 2 | 3;
+  template: CharacterTemplate;
+  plan: EvolutionPlan;
+  occupied: (string | null)[];
+  everBuilt: Set<number>;
+  reserve: Piece[];
+  reserveRevision: number;
 }
 export interface DamageResult {
   direct: Piece[];
@@ -31,6 +51,6 @@ export interface DamageResult {
 }
 export interface AttachmentResult {
   piece: Piece;
-  mode: 'repair' | 'growth';
+  mode: 'repair' | 'growth' | 'bank';
 }
 export type Random = () => number;

@@ -1,4 +1,5 @@
-import type { CharacterTemplate, Random, Structure } from './types';
+import type { CharacterTemplate, EvolutionId, Random, Structure } from './types';
+import { enableEvolution, EVOLUTIONS } from './evolution';
 import { carryToNextRound, createStructure } from './structure';
 import { botForRound, type BotStyle, type BotDifficulty } from './bots';
 
@@ -32,15 +33,19 @@ function shuffledOpponents(templates: CharacterTemplate[], selectedId: string, r
   return ids;
 }
 
-export function newRound(templates: CharacterTemplate[], selectedId: string, random: Random = Math.random): RoundState {
+export function newRound(templates: CharacterTemplate[], selectedId: string, random: Random = Math.random, evolutionId?: EvolutionId): RoundState {
   const index = templates.findIndex(template => template.id === selectedId);
   if (index < 0 || templates.length < 2) throw new Error('Invalid round roster');
   const opponents = shuffledOpponents(templates, selectedId, random);
   const playerTemplate = templates[index], enemyTemplate = templates.find(template => template.id === opponents[0])!;
+  const player = spawn(playerTemplate, 'round-1/player'), enemy = spawn(enemyTemplate, 'round-1/enemy');
+  if (evolutionId) {
+    enableEvolution(player, playerTemplate, evolutionId);
+    enableEvolution(enemy, enemyTemplate, EVOLUTIONS[Math.min(4, Math.floor(random() * EVOLUTIONS.length))].id);
+  }
   return {
     number: 1, playerTemplate, enemyTemplate,
-    player: spawn(playerTemplate, 'round-1/player'),
-    enemy: spawn(enemyTemplate, 'round-1/enemy'),
+    player, enemy,
     remainingOpponents: opponents.slice(1),
     ...botForRound(1, random),
   };
@@ -57,10 +62,12 @@ export function nextRound(templates: CharacterTemplate[], previous: RoundState, 
     : shuffledOpponents(templates, previous.playerTemplate.id, random, previous.enemyTemplate.id);
   const enemyTemplate = templates.find(template => template.id === opponents[0]);
   if (!enemyTemplate) throw new Error('Invalid round roster');
+  const enemy = spawn(enemyTemplate, `round-${number}/enemy`);
+  if (previous.player.evolution) enableEvolution(enemy, enemyTemplate, EVOLUTIONS[Math.min(4, Math.floor(random() * EVOLUTIONS.length))].id);
   return {
     number, playerTemplate: previous.playerTemplate, enemyTemplate,
     player: carryToNextRound(previous.player),
-    enemy: spawn(enemyTemplate, `round-${number}/enemy`),
+    enemy,
     remainingOpponents: opponents.slice(1),
     ...botForRound(number, random),
   };

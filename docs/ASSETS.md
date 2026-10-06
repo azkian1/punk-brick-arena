@@ -1,6 +1,6 @@
 # Asset Pipeline
 
-The browser uses pre-generated character JSON, local PNG portraits, and local audio. It does not generate models or request third-party media during gameplay. See [Third-party notices](../THIRD_PARTY_NOTICES.md) for retained credits and rights information.
+The browser uses pre-generated head templates and body blueprints, local PNG portraits, and local audio. During play it assembles collected parts into those fixed plans; it does not run the portrait generator or request third-party media. See [Third-party notices](../THIRD_PARTY_NOTICES.md) for retained credits and rights information.
 
 ## Files and provenance
 
@@ -14,6 +14,10 @@ The browser uses pre-generated character JSON, local PNG portraits, and local au
 | [src/assets/provenance.json](../src/assets/provenance.json) | Pinned repository/commit and original Git blob hashes |
 | [src/vendor/punk-to-bricks/](../src/vendor/punk-to-bricks/) | Copied generator modules, parts data, license, and disclaimer |
 | [scripts/generate-templates.ts](../scripts/generate-templates.ts) | Project-specific offline importer |
+| [prototypes/brick-evolution/data/](../prototypes/brick-evolution/data/) | Ten authored body models, source-part stock demonstrations, and prototype reports |
+| [scripts/generate-evolutions.ts](../scripts/generate-evolutions.ts) | Extract body slot geometry and neck height from the authored models |
+| [src/assets/evolutions.generated.json](../src/assets/evolutions.generated.json) | Runtime plans for five paths with two body phases each; excludes donor colors and inventory |
+| [art/evolutions/](../art/evolutions/) | Five full-color concept illustrations kept for offline reference; not loaded by the game or included in production builds |
 
 The pinned repository is recorded in provenance as Punk to Bricks by John Karp, revision `15e95d6c4ed55cbc48ed3dd9a463a80fed443008`. The script also embeds this revision in each template's source URL. Generation does not fetch it: all required generator code and images are local.
 
@@ -47,7 +51,7 @@ Every character is selectable and can be an opponent when a different template i
 
 ## Runtime presentation and credits
 
-Bot style and difficulty are assigned independently of the character template. Aggressor, Collector, Sniper, and Balanced behavior share this same roster; no separate bot models or portraits are generated for the opening difficulty tiers. Next Round carries the player's attached geometry in memory without writing it back into template JSON. Movement, menu, and bot-rule changes do not require asset regeneration unless they also change the catalog, importer, or geometry format.
+Bot style, difficulty, and evolution path are assigned independently of the character template. Aggressor, Collector, Sniper, and Balanced behavior share this same roster; no separate bot head models or portraits are generated for the opening difficulty tiers. Next Round carries the player's attached geometry and reserve in memory without writing either back into asset JSON. Movement, menu, and bot-rule changes do not require asset regeneration unless they also change the catalog, importer, or geometry format.
 
 The lobby uses the catalog portrait for both the selected source-image inset and the character card, and renders the matching generated model in the shared WebGL preview. Its About section links to the creator, CryptoPunks, the original Punk to Bricks generator/author, and `/assets/ATTRIBUTION.txt`. These links are UI content in `src/ui.ts`; generation does not maintain them. Keep the README credits, lobby credits, and distributed notices consistent when changing provenance.
 
@@ -84,6 +88,24 @@ Converted positions and heights are rounded to three decimal places. Upstream X/
 The importer builds face-contact adjacency and selects a Core near the lower middle, favoring pieces with multiple neighbors. It verifies that all pieces connect to that Core before writing templates. Diagnostics also retain upstream weak-joint and center-of-mass information; those are descriptive and are not separate import rejection conditions.
 
 All 17 included templates report zero upstream collisions/floating pieces and full game Core connectivity. The English interface update regenerated the templates on 2026-10-05 after translating all 17 catalog subtitles. Only subtitles changed: a comparison excluding that field confirmed identical template content, and the diagnostics JSON remained byte-identical. Keep catalog subtitles and generated metadata in sync by regenerating after copy changes.
+
+## Evolution body pipeline
+
+The five paths are Mosher, Guitar Demon, Stage Spider, Bass Titan, and Winged Frontman. Each has an authored phase-2 and phase-3 body. `prototypes/brick-evolution/build.ts` constructs the full review models from actual source-piece dimensions and preserves donor colors; `audit.ts` checks conservation and connected growth prefixes. These review models include a reference head and donor stock for demonstrating feasibility.
+
+`scripts/generate-evolutions.ts` reads all ten model JSON files, identifies `original-head` pieces, and exports the neck height plus `[x, y, z, sizeX, sizeY, sizeZ]` for each body slot. It excludes the reference head, piece IDs, colors, donor references, and reserve. The runtime combines these slots with the player's selected head, omits overlapping/unreachable slots, and fills the rest only with actually collected parts. Incoming color and shape are preserved; exact dimensions select slots. The separate 24 neutral starting drops are created by the match loop, not the evolution assets.
+
+After changing authored geometry, run:
+
+```sh
+npx tsx prototypes/brick-evolution/build.ts
+npx tsx prototypes/brick-evolution/audit.ts
+npx tsx scripts/generate-evolutions.ts
+npm test -- --maxWorkers=1 --no-file-parallelism
+npm run build
+```
+
+`npm run assets:generate` updates head templates only; `npm run build` regenerates neither asset family. Review both phases in the development prototype viewer, then inspect earned growth, damage/repair, phase transition, camera framing, and reserve carryover in the game. All 170 head/path/phase combinations have connectivity coverage in `evolution.test.ts`; this does not certify physical brick assembly strength.
 
 ## Vendored generator modules
 
@@ -134,4 +156,4 @@ The script requires 96 kHz stereo PCM16 WAV input and overwrites `public/assets/
 
 ## Distribution notices
 
-`THIRD_PARTY_NOTICES.md` is mirrored at `public/assets/ATTRIBUTION.txt` so Vite includes it in the static output. Keep those two files synchronized when changing asset credits. Vendor notices concern their respective upstream content; no project-wide license is declared in this snapshot.
+`THIRD_PARTY_NOTICES.md` is mirrored at `public/assets/ATTRIBUTION.txt` so Vite includes it in the static output. Keep those two files synchronized when changing asset credits. The project's [MIT License](../LICENSE) covers its original code and documentation. Third-party assets and trademarks retain their own terms; see the notices for the image-rights limitation.

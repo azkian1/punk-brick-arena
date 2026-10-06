@@ -41,7 +41,7 @@ try {
     await page.locator('#angle').click();
     if(character!=='mosher') {
       await page.locator('#reserve').click();
-      if(!(await page.locator('#status').innerText()).includes('0 потерянных'))throw new Error('Reserve balance missing');
+      if(!(await page.locator('#status').innerText()).includes('0 lost parts'))throw new Error('Reserve balance missing');
       const reserveDownload=page.waitForEvent('download');await page.locator('#export').click();
       const downloaded=await reserveDownload;await downloaded.saveAs(fileURLToPath(new URL(downloaded.suggestedFilename(),output)));
       console.log(`Saved ${downloaded.suggestedFilename()}`);

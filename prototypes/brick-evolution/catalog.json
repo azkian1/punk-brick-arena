@@ -1,7 +1,7 @@
 [
-  {"id":"mosher","name":"МОШЕР","label":"Мошер","description":"Мошер: тяжёлые кулаки, широкая стойка и ступенчатые шипы. Голова сохраняет исходный размер."},
-  {"id":"guitar","name":"ГИТАРНЫЙ ДЕМОН","label":"Гитарный демон","description":"Гитарный демон: вытянутое тело, гитара из пластин и длинная рука-коготь. Никаких специальных деталей для струн или суставов."},
-  {"id":"spider","name":"СЦЕНИЧЕСКИЙ ПАУК","label":"Сценический паук","description":"Сценический паук: из барабанщика вырастает мутант с четырьмя руками, четырьмя опорными ногами и барабаном на корпусе."},
-  {"id":"bass","name":"БАСОВЫЙ ТИТАН","label":"Басовый титан","description":"Басовый титан: один динамик превращается в четыре объёмных диффузора. Растут грудная клетка, ботинки и два рупора за плечами."},
-  {"id":"frontman","name":"КРЫЛАТЫЙ ФРОНТМЕН","label":"Крылатый фронтмен","description":"Крылатый фронтмен: короткий плащ раскрывается в два ступенчатых крыла. Вытягиваются ноги и рука-коготь, микрофон остаётся у лица."}
+  {"id":"mosher","name":"MOSHER","label":"Mosher","description":"Mosher: heavy fists, a wide stance and stepped spikes. The head keeps its original size."},
+  {"id":"guitar","name":"GUITAR DEMON","label":"Guitar Demon","description":"Guitar Demon: an elongated body, a guitar made from plates and a long claw arm. No special string or joint parts."},
+  {"id":"spider","name":"STAGE SPIDER","label":"Stage Spider","description":"Stage Spider: a drummer grows four arms, four supporting legs and a drum built into its torso."},
+  {"id":"bass","name":"BASS TITAN","label":"Bass Titan","description":"Bass Titan: one speaker grows into four sculpted speaker cones. The chest, boots and two horns behind the shoulders grow larger."},
+  {"id":"frontman","name":"WINGED FRONTMAN","label":"Winged Frontman","description":"Winged Frontman: a short cape opens into two stepped wings. The legs and claw arm grow longer while the microphone stays near the face."}
 ]

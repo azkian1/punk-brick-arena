@@ -1,6 +1,7 @@
 {
   "name": "punk-brick-arena",
   "version": "0.1.0",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,6 +9,7 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 127.0.0.1",
     "test": "vitest run",
+    "security:check": "node --test scripts/security-check.node.mjs && node scripts/security-check.mjs",
     "assets:generate": "tsx scripts/generate-templates.ts"
   },
   "dependencies": {
@@ -20,6 +22,6 @@
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",
     "vite": "^7.1.7",
-    "vitest": "^3.2.4"
+    "vitest": "^4.1.11"
   }
 }

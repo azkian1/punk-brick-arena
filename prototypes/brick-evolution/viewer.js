@@ -4,7 +4,7 @@ import { CharacterView } from '../../src/render.ts';
 import { createStructure } from '../../src/game/structure.ts';
 import catalog from './catalog.json';
 
-const nf=new Intl.NumberFormat('ru-RU');
+const nf=new Intl.NumberFormat('en-US');
 const colorButton=document.querySelector('#color');
 let current='mosher',monochrome=false,growth=1,revision=0,showReserve=false;
 const cache=new Map(),views=[];
@@ -96,19 +96,19 @@ function sync() {
     const shown=model.pieces.slice(0,n).map(p=>monochrome?{...p,color:'#665575'}:p);
     const structure=createStructure({...model,pieces:shown});structure.revision=++revision;v.view.sync(structure);
     v.dirty=true;
-    document.querySelector(`#stats-${v.stage}`).innerHTML=`<div class="stat"><b>${nf.format(n)}</b><span>деталей в модели</span></div><div class="stat"><b>+${nf.format(report.addedPieces)}</b><span>для полного тела</span></div><div class="stat"><b>${report.donorHeadsOpened}</b><span>голов разобрано</span></div><div class="stat"><b>${nf.format(report.unusedDonorPieces+model.pieces.length-n)}</b><span>в накопителе</span></div>`;
+    document.querySelector(`#stats-${v.stage}`).innerHTML=`<div class="stat"><b>${nf.format(n)}</b><span>parts in model</span></div><div class="stat"><b>+${nf.format(report.addedPieces)}</b><span>for the full body</span></div><div class="stat"><b>${report.donorHeadsOpened}</b><span>donor heads opened</span></div><div class="stat"><b>${nf.format(report.unusedDonorPieces+model.pieces.length-n)}</b><span>in reserve</span></div>`;
   }
-  colorButton.textContent=monochrome?'Одноцветный силуэт':'Цвета добычи';
+  colorButton.textContent=monochrome?'Monochrome silhouette':'Loot colors';
   colorButton.setAttribute('aria-pressed',String(monochrome));
-  document.querySelector('#reserve').textContent=showReserve?'Вернуться к телу':'Накопитель';
+  document.querySelector('#reserve').textContent=showReserve?'Back to body':'Reserve';
   document.querySelector('#growth').disabled=showReserve;
   document.querySelector('#color').disabled=showReserve;
-  document.querySelector('#description').textContent=showReserve?'Накопитель: все неиспользованные детали сохранены. Между раундами этот запас можно снова перебрать вместе с новой добычей.':descriptions[current];
-  document.querySelector('#status').textContent=showReserve?'✓ Баланс деталей сохранён · 0 потерянных деталей':'✓ Все детали связаны с ядром · 0 пересечений';
+  document.querySelector('#description').textContent=showReserve?'Reserve: every unused part is preserved. In the game, stored parts are reconsidered alongside new loot between rounds.':descriptions[current];
+  document.querySelector('#status').textContent=showReserve?'✓ Part balance preserved · 0 lost parts':'✓ All parts connected to core · 0 intersections';
 }
 
 async function loadModel(name) {
-  current=name;document.querySelector('#status').className='';document.querySelector('#status').textContent='Загрузка…';
+  current=name;document.querySelector('#status').className='';document.querySelector('#status').textContent='Loading…';
   document.querySelector('#export').disabled=true;
   for(const b of document.querySelectorAll('[data-model]'))b.classList.toggle('active',b.dataset.model===name);
   try {
@@ -124,8 +124,8 @@ async function loadModel(name) {
     framing={height:Math.max(104,height*1.18+depth*.22),width:Math.max(112,(width+depth*.45)*1.14),centerY:height/2};
     views.forEach((v,i)=>{if(v.reserveView){v.reserveView.dispose(v.scene);v.reserveView=null;}v.record=records[i];});sync();setAngle('angle');
     const valid=records.every(r=>r.report.connected===r.report.pieces&&r.report.collisions===0&&r.report.cutOrScaledPieces===0);
-    const status=document.querySelector('#status');status.className=valid?'checked':'error';status.textContent=valid?(showReserve?'✓ Баланс деталей сохранён · 0 потерянных деталей':'✓ Все детали связаны с ядром · 0 пересечений'):'Есть ошибки проверки';
-    document.querySelector('#data-links').innerHTML=`<a href="./data/${name}-2.json" download>Модель фазы 2 (JSON)</a> · <a href="./data/${name}-3.json" download>Модель фазы 3 (JSON)</a> · <a href="./data/report.json" download>Отчёт проверки и расход деталей</a>`;
+    const status=document.querySelector('#status');status.className=valid?'checked':'error';status.textContent=valid?(showReserve?'✓ Part balance preserved · 0 lost parts':'✓ All parts connected to core · 0 intersections'):'Validation errors found';
+    document.querySelector('#data-links').innerHTML=`<a href="./data/${name}-2.json" download>Phase 2 model (JSON)</a> · <a href="./data/${name}-3.json" download>Phase 3 model (JSON)</a> · <a href="./data/report.json" download>Validation and parts report</a>`;
     document.querySelector('#export').disabled=false;
     const url=new URL(location.href);url.searchParams.set('model',name);history.replaceState(null,'',url);
   } catch(e) {document.querySelector('#status').className='error';document.querySelector('#status').textContent=e.message;console.error(e);}
@@ -141,17 +141,17 @@ document.querySelector('#export').addEventListener('click',()=>{
   g.fillStyle='#fbfaf7';g.fillRect(0,0,c.width,c.height);
   g.fillStyle='#8051c1';g.font='bold 18px Arial';g.fillText('PUNK BRICK / REAL PARTS ASSEMBLY',52,43);
   g.fillStyle='#24212b';g.font='bold 42px Arial';g.fillText(catalog.find(c=>c.id===current).name,52,99);
-  g.fillStyle='#716779';g.font='22px Arial';g.fillText(showReserve?'Накопитель · Все оставшиеся детали':monochrome?'Одноцветный просмотр силуэта':'Исходные цвета добычи · Без подбора по цвету',52,137);
+  g.fillStyle='#716779';g.font='22px Arial';g.fillText(showReserve?'Reserve · All unused parts':monochrome?'Monochrome silhouette preview':'Original loot colors · No color matching',52,137);
   views.forEach((v,i)=>{
     v.renderer.render(v.scene,v.camera);
     const src=v.renderer.domElement,x=35+i*1000,y=155,w=930,h=890;
     const scale=Math.min(w/src.width,h/src.height),dw=src.width*scale,dh=src.height*scale;
     g.drawImage(src,x+(w-dw)/2,y+(h-dh)/2,dw,dh);
-    g.fillStyle='#24212b';g.font='bold 28px Arial';g.fillText(`ФАЗА ${v.stage} / ${showReserve?'НАКОПИТЕЛЬ':v.stage===2?'ТЕЛО':'МУТАНТ'}`,x+22,1072);
+    g.fillStyle='#24212b';g.font='bold 28px Arial';g.fillText(`PHASE ${v.stage} / ${showReserve?'RESERVE':v.stage===2?'BODY FORM':'FINAL FORM'}`,x+22,1072);
     const n=v.record.report.headPieces+Math.round(v.record.report.addedPieces*growth);
-    g.font='21px Arial';g.fillStyle='#716779';g.fillText(showReserve?`${nf.format(v.record.report.unusedDonorPieces+v.record.model.pieces.length-n)} деталей в запасе`:`${nf.format(n)} деталей · ${v.record.report.donorHeadsOpened} донорских голов`,x+22,1110);
+    g.font='21px Arial';g.fillStyle='#716779';g.fillText(showReserve?`${nf.format(v.record.report.unusedDonorPieces+v.record.model.pieces.length-n)} parts in reserve`:`${nf.format(n)} parts · ${v.record.report.donorHeadsOpened} donor heads`,x+22,1110);
   });
-  g.font='18px Arial';g.fillStyle='#8b8093';g.fillText('Размеры и цвета донорских деталей сохранены. Геометрия проверена по правилам игры.',52,1180);
+  g.font='18px Arial';g.fillStyle='#8b8093';g.fillText('Original donor part sizes and colors preserved. Geometry verified under game rules.',52,1180);
   c.toBlob(blob=>{if(!blob)return;const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=`${current}-brick-${showReserve?'reserve':'assembly'}${monochrome&&!showReserve?'-silhouette':''}.png`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);});
 });
 

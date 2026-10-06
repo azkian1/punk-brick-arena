@@ -15,7 +15,7 @@ const end = (piece: Piece, axis: Axis) => piece.position[axis] + piece.size[axis
 const near = (a: number, b: number) => Math.abs(a - b) <= EPSILON;
 const overlap = (a: Piece, b: Piece, axis: Axis) =>
   Math.min(end(a, axis), end(b, axis)) - Math.max(a.position[axis], b.position[axis]);
-const intersects = (a: Piece, b: Piece) => AXES.every(axis => overlap(a, b, axis) > EPSILON);
+export const intersects = (a: Piece, b: Piece) => AXES.every(axis => overlap(a, b, axis) > EPSILON);
 
 function touching(a: Piece, b: Piece): boolean {
   return AXES.some(axis =>
@@ -23,7 +23,7 @@ function touching(a: Piece, b: Piece): boolean {
     AXES.every(other => other === axis || overlap(a, b, other) > EPSILON));
 }
 
-function validGeometry(piece: Piece): boolean {
+export function validGeometry(piece: Piece): boolean {
   return AXES.every(axis => Number.isFinite(piece.position[axis]) &&
     Number.isFinite(piece.size[axis]) && piece.size[axis] > EPSILON);
 }
@@ -100,30 +100,67 @@ class SpatialIndex {
 
 interface GeometryCache {
   revision: number;
-  index: SpatialIndex;
+  index?: SpatialIndex;
   connected?: Set<string>;
 }
 const caches = new WeakMap<Structure, GeometryCache>();
 
-function geometry(structure: Structure): GeometryCache {
+function geometryCache(structure: Structure): GeometryCache {
   let cache = caches.get(structure);
   if (!cache || cache.revision !== structure.revision) {
-    cache = { revision: structure.revision, index: new SpatialIndex([...structure.pieces.values()]) };
+    cache = { revision: structure.revision };
     caches.set(structure, cache);
   }
   return cache;
 }
 
+function geometry(structure: Structure): GeometryCache & { index: SpatialIndex } {
+  const cache = geometryCache(structure);
+  cache.index ??= new SpatialIndex([...structure.pieces.values()]);
+  return cache as GeometryCache & { index: SpatialIndex };
+}
+
+/** Exact blueprint slots already have an immutable face graph. */
+function blueprintComponent(structure: Structure): Set<string> | null {
+  const state = structure.evolution;
+  if (!state) return null;
+  const mapped = new Set<string>();
+  let core = -1;
+  for (let i = 0; i < state.occupied.length; i++) {
+    const id = state.occupied[i], piece = id && structure.pieces.get(id);
+    if (!piece) continue;
+    const slot = state.plan.slots[i];
+    if (!slot || mapped.has(piece.id) || !AXES.every(axis =>
+      piece.position[axis] === slot.position[axis] && piece.size[axis] === slot.size[axis])) return null;
+    mapped.add(piece.id);
+    if (piece.id === structure.coreId) core = i;
+  }
+  // Direct free-growth/attachment callers can temporarily lie outside the plan.
+  if (mapped.size !== structure.pieces.size) return null;
+  const reached = new Set<string>();
+  if (core < 0) return reached;
+  const queue = [core];
+  reached.add(structure.coreId);
+  for (let i = 0; i < queue.length; i++) for (const neighbor of state.plan.neighbors[queue[i]]) {
+    const id = state.occupied[neighbor];
+    if (id && structure.pieces.has(id) && !reached.has(id)) { reached.add(id); queue.push(neighbor); }
+  }
+  return reached;
+}
+
 function coreComponent(structure: Structure): Set<string> {
-  const cache = geometry(structure);
+  const cache = geometryCache(structure);
   if (cache.connected) return cache.connected;
+  const blueprint = blueprintComponent(structure);
+  if (blueprint) { cache.connected = blueprint; return blueprint; }
+  const index = geometry(structure).index;
   const reached = new Set<string>();
   const core = structure.pieces.get(structure.coreId);
   if (core) {
     const queue = [core];
     reached.add(core.id);
     for (let i = 0; i < queue.length; i++) {
-      for (const other of cache.index.nearby(queue[i])) {
+      for (const other of index.nearby(queue[i])) {
         if (!reached.has(other.id) && touching(queue[i], other)) {
           reached.add(other.id);
           queue.push(other);
@@ -157,6 +194,12 @@ export function carryToNextRound(previous: Structure): Structure {
     revision: 0,
     roundStartPieces: previous.pieces.size,
     coreExposed: previous.pieces.size <= 1,
+    evolution: previous.evolution && {
+      ...previous.evolution,
+      occupied: [...previous.evolution.occupied],
+      everBuilt: new Set(previous.evolution.everBuilt),
+      reserve: previous.evolution.reserve.map(clonePiece),
+    },
   };
 }
 
@@ -256,13 +299,44 @@ export function damageStructure(
         structure.pieces.delete(piece.id);
       }
     }
-    for (const piece of [...direct, ...cascade]) recordVacancy(structure.vacancies, piece);
+    // Blueprint slots already record exact repair locations; avoid merging thousands
+    // of detached body boxes into generic free-growth cavities.
+    if (!structure.evolution) for (const piece of [...direct, ...cascade]) recordVacancy(structure.vacancies, piece);
     if (structure.pieces.size <= coreExposureThreshold(structure)) structure.coreExposed = true;
     structure.revision++;
-    if (cascade.length > 0) caches.delete(structure);
-    else geometryAfterRevision(structure);
+    // The reached component remains correct after discarding the disconnected pieces.
+    // A spatial index built before that discard must be rebuilt on its next use.
+    if (cascade.length > 0) {
+      const cache = caches.get(structure);
+      if (cache) cache.index = undefined;
+    }
+    geometryAfterRevision(structure);
   }
   return { direct, cascade, eliminated: !structure.pieces.has(structure.coreId) };
+}
+
+/** Shared face graph for immutable evolution blueprints. */
+export function contactGraph(pieces: Piece[]): number[][] {
+  const index = new SpatialIndex(pieces), ids = new Map(pieces.map((p, i) => [p.id, i]));
+  return pieces.map(piece => index.nearby(piece).filter(other => other !== piece && touching(piece, other)).map(other => ids.get(other.id)!));
+}
+
+/** Install at a prescribed slot, preserving the collected part's size and color. */
+export function attachAt(structure: Structure, incoming: Piece, position: Vec3, mode: 'repair' | 'growth'): AttachmentResult | null {
+  if (!structure.pieces.has(structure.coreId) || !validGeometry(incoming)) return null;
+  const cache = geometry(structure), connected = coreComponent(structure);
+  const piece = { ...clonePiece(incoming), position: { ...position } };
+  const nearby = cache.index.nearby(piece);
+  if (nearby.some(other => intersects(piece, other)) || !nearby.some(other => connected.has(other.id) && touching(piece, other))) return null;
+  const base = piece.id || 'pickup';
+  let suffix = 1;
+  while (structure.pieces.has(piece.id)) piece.id = `${base}~${suffix++}`;
+  structure.pieces.set(piece.id, piece);
+  cache.index.add(piece);
+  connected.add(piece.id);
+  cache.connected = connected;
+  cache.revision = ++structure.revision;
+  return { piece, mode };
 }
 
 function geometryAfterRevision(structure: Structure): void {

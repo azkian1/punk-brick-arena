@@ -4,3 +4,10 @@ dist/
 .vite/
 *.log
 artifacts/
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx

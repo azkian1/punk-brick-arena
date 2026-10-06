@@ -5,7 +5,7 @@
   "reports": [
     {
       "id": "mosher-2",
-      "label": "МОШЕР",
+      "label": "MOSHER",
       "stage": 2,
       "pieces": 3341,
       "headPieces": 423,
@@ -138,11 +138,11 @@
         "shins": 122,
         "boots": 158
       },
-      "limitation": "Verified against the game face-contact graph, not a physical LEGO stud/clutch or load-bearing simulation. Static concept pose; no joints, animation or gameplay integration."
+      "limitation": "Verified against the game face-contact graph, not a physical LEGO stud/clutch or load-bearing simulation. Static assembly pose without articulated joints. Body geometry is exported to the game; prototype donor stock is excluded from gameplay."
     },
     {
       "id": "mosher-3",
-      "label": "МОШЕР",
+      "label": "MOSHER",
       "stage": 3,
       "pieces": 10141,
       "headPieces": 423,
@@ -318,11 +318,11 @@
         "knuckles": 525,
         "boots": 629
       },
-      "limitation": "Verified against the game face-contact graph, not a physical LEGO stud/clutch or load-bearing simulation. Static concept pose; no joints, animation or gameplay integration."
+      "limitation": "Verified against the game face-contact graph, not a physical LEGO stud/clutch or load-bearing simulation. Static assembly pose without articulated joints. Body geometry is exported to the game; prototype donor stock is excluded from gameplay."
     },
     {
       "id": "guitar-2",
-      "label": "ГИТАРНЫЙ ДЕМОН",
+      "label": "GUITAR DEMON",
       "stage": 2,
       "pieces": 2708,
       "headPieces": 423,
@@ -441,11 +441,11 @@
         "left-fist": 82,
         "boots": 91
       },
-      "limitation": "Verified against the game face-contact graph, not a physical LEGO stud/clutch or load-bearing simulation. Static concept pose; no joints, animation or gameplay integration."
+      "limitation": "Verified against the game face-contact graph, not a physical LEGO stud/clutch or load-bearing simulation. Static assembly pose without articulated joints. Body geometry is exported to the game; prototype donor stock is excluded from gameplay."
     },
     {
       "id": "guitar-3",
-      "label": "ГИТАРНЫЙ ДЕМОН",
+      "label": "GUITAR DEMON",
       "stage": 3,
       "pieces": 4507,
       "headPieces": 423,
@@ -584,11 +584,11 @@
         "shins": 281,
         "boots": 88
       },
-      "limitation": "Verified against the game face-contact graph, not a physical LEGO stud/clutch or load-bearing simulation. Static concept pose; no joints, animation or gameplay integration."
+      "limitation": "Verified against the game face-contact graph, not a physical LEGO stud/clutch or load-bearing simulation. Static assembly pose without articulated joints. Body geometry is exported to the game; prototype donor stock is excluded from gameplay."
     },
     {
       "id": "spider-2",
-      "label": "СЦЕНИЧЕСКИЙ ПАУК",
+      "label": "STAGE SPIDER",
       "stage": 2,
       "pieces": 2768,
       "headPieces": 423,
@@ -707,11 +707,11 @@
         "boots": 79,
         "mallet-heads": 36
       },
-      "limitation": "Verified against the game face-contact graph, not a physical LEGO stud/clutch or load-bearing simulation. Static concept pose; no joints, animation or gameplay integration."
+      "limitation": "Verified against the game face-contact graph, not a physical LEGO stud/clutch or load-bearing simulation. Static assembly pose without articulated joints. Body geometry is exported to the game; prototype donor stock is excluded from gameplay."
     },
     {
       "id": "spider-3",
-      "label": "СЦЕНИЧЕСКИЙ ПАУК",
+      "label": "STAGE SPIDER",
       "stage": 3,
       "pieces": 7414,
       "headPieces": 423,
@@ -879,11 +879,11 @@
         "lower-mallet-heads": 42,
         "boots": 286
       },
-      "limitation": "Verified against the game face-contact graph, not a physical LEGO stud/clutch or load-bearing simulation. Static concept pose; no joints, animation or gameplay integration."
+      "limitation": "Verified against the game face-contact graph, not a physical LEGO stud/clutch or load-bearing simulation. Static assembly pose without articulated joints. Body geometry is exported to the game; prototype donor stock is excluded from gameplay."
     },
     {
       "id": "bass-2",
-      "label": "БАСОВЫЙ ТИТАН",
+      "label": "BASS TITAN",
       "stage": 2,
       "pieces": 3148,
       "headPieces": 423,
@@ -1009,11 +1009,11 @@
         "shins": 157,
         "boots": 116
       },
-      "limitation": "Verified against the game face-contact graph, not a physical LEGO stud/clutch or load-bearing simulation. Static concept pose; no joints, animation or gameplay integration."
+      "limitation": "Verified against the game face-contact graph, not a physical LEGO stud/clutch or load-bearing simulation. Static assembly pose without articulated joints. Body geometry is exported to the game; prototype donor stock is excluded from gameplay."
     },
     {
       "id": "bass-3",
-      "label": "БАСОВЫЙ ТИТАН",
+      "label": "BASS TITAN",
       "stage": 3,
       "pieces": 8014,
       "headPieces": 423,
@@ -1173,11 +1173,11 @@
         "shins": 465,
         "boots": 251
       },
-      "limitation": "Verified against the game face-contact graph, not a physical LEGO stud/clutch or load-bearing simulation. Static concept pose; no joints, animation or gameplay integration."
+      "limitation": "Verified against the game face-contact graph, not a physical LEGO stud/clutch or load-bearing simulation. Static assembly pose without articulated joints. Body geometry is exported to the game; prototype donor stock is excluded from gameplay."
     },
     {
       "id": "frontman-2",
-      "label": "КРЫЛАТЫЙ ФРОНТМЕН",
+      "label": "WINGED FRONTMAN",
       "stage": 2,
       "pieces": 2523,
       "headPieces": 423,
@@ -1302,11 +1302,11 @@
         "microphone-head": 16,
         "boots": 74
       },
-      "limitation": "Verified against the game face-contact graph, not a physical LEGO stud/clutch or load-bearing simulation. Static concept pose; no joints, animation or gameplay integration."
+      "limitation": "Verified against the game face-contact graph, not a physical LEGO stud/clutch or load-bearing simulation. Static assembly pose without articulated joints. Body geometry is exported to the game; prototype donor stock is excluded from gameplay."
     },
     {
       "id": "frontman-3",
-      "label": "КРЫЛАТЫЙ ФРОНТМЕН",
+      "label": "WINGED FRONTMAN",
       "stage": 3,
       "pieces": 5814,
       "headPieces": 423,
@@ -1452,7 +1452,7 @@
         "boots": 80,
         "stud-spikes": 52
       },
-      "limitation": "Verified against the game face-contact graph, not a physical LEGO stud/clutch or load-bearing simulation. Static concept pose; no joints, animation or gameplay integration."
+      "limitation": "Verified against the game face-contact graph, not a physical LEGO stud/clutch or load-bearing simulation. Static assembly pose without articulated joints. Body geometry is exported to the game; prototype donor stock is excluded from gameplay."
     }
   ]
 }

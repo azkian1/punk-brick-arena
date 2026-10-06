@@ -1,4 +1,5 @@
-import type { CharacterTemplate } from './game/types';
+import type { CharacterTemplate, EvolutionId } from './game/types';
+import { EVOLUTIONS, EVOLUTION_THRESHOLD, type evolutionProgress } from './game/evolution';
 import { CONFIG } from './game/config';
 import { characterPortrait as portrait } from './assets/catalog';
 import { BOT_LABELS, BOT_DIFFICULTIES, type BotStyle, type BotDifficulty } from './game/bots';
@@ -13,6 +14,7 @@ type Callbacks = {
   onMute: () => void;
   onSelect: (templateId: string) => void;
   onDamageChange: (value: number) => void;
+  onEvolution: (id: EvolutionId) => void;
 };
 type UpdateData = {
   elapsed: number;
@@ -36,12 +38,14 @@ type UpdateData = {
   botPanic: boolean;
   victoryCollected: number;
   victoryTotal: number;
+  evolution: ReturnType<typeof evolutionProgress>;
+  enemyReserve: number;
 };
-type ResultStats = { elapsed: number; repairs: number; growth: number; hits: number; direct: number; cascade: number; round: number; carriedPieces: number; basePieces: number; victoryCollected: number; victorySkipped: number };
+type ResultStats = { elapsed: number; repairs: number; growth: number; hits: number; direct: number; cascade: number; round: number; carriedPieces: number; basePieces: number; victoryCollected: number; victorySkipped: number; reserve: number; evolutionName: string; evolved: boolean };
 
 const escape = (value: string) => value.replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]!));
 const time = (seconds: number) => `${Math.floor(seconds / 60).toString().padStart(2, '0')}:${Math.floor(seconds % 60).toString().padStart(2, '0')}`;
-const icon = (name: 'arrow' | 'sound' | 'muted' | 'pause' | 'play' | 'reset') => {
+const icon = (name: 'arrow' | 'sound' | 'muted' | 'pause' | 'play' | 'reset' | 'backpack') => {
   const paths = {
     arrow: '<path d="M5 12h14M13 6l6 6-6 6"/>',
     sound: '<path d="M11 5 6 9H3v6h3l5 4V5Z"/><path d="M15 8a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14"/>',
@@ -49,12 +53,22 @@ const icon = (name: 'arrow' | 'sound' | 'muted' | 'pause' | 'play' | 'reset') =>
     pause: '<path d="M8 5v14M16 5v14"/>',
     play: '<path d="m8 5 11 7-11 7V5Z"/>',
     reset: '<path d="M3 10a9 9 0 1 1 2 8M3 4v6h6"/>',
+    backpack: '<path d="M8 6V4h8v2M7 7h10l2 4v10H5V11l2-4Z"/><path d="M8 14h8v5H8zM9 10h6"/>',
   };
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name]}</svg>`;
 };
 
 const ROSTER_PAGE_SIZE = 6;
 const pieceWord = (count: number) => count === 1 ? 'piece' : 'pieces';
+
+function reservePanel(side: 'player' | 'enemy') {
+  const player = side === 'player';
+  return `<aside class="reserve-panel reserve-panel--${side}" data-section="hud" aria-label="${player ? 'Your backpack' : 'Opponent backpack'}" hidden>
+    <header class="reserve-panel__header"><div class="reserve-panel__heading"><span class="reserve-panel__icon">${icon('backpack')}</span><div><h2>${player ? 'Backpack' : 'Rival stock'}</h2><span>${player ? 'YOUR SPARE PARTS' : 'OPPONENT’S SPARES'}</span></div></div><div class="reserve-panel__count"><strong ${player ? 'data-reserve' : 'data-enemy-reserve'}>0</strong><span data-reserve-unit="${side}">pieces saved</span><span class="reserve-panel__auto" title="Spare parts are used automatically">AUTO</span></div></header>
+    <div class="reserve-panel__stage" data-reserve-stage="${side}" aria-hidden="true"><div class="reserve-panel__empty" data-reserve-empty="${side}"><strong>Ready for loot</strong><span>Spare parts collect here</span></div></div>
+    <footer class="reserve-panel__footer"><span class="reserve-panel__dot" aria-hidden="true"></span><span data-reserve-note="${side}">${player ? 'Saved for repairs & growth' : 'Saved for the next build'}</span></footer>
+  </aside>`;
+}
 
 function tuning(): string {
   return `<details class="tuning"><summary>Match Settings<span aria-hidden="true">+</span></summary><div class="tuning__body"><label>Pieces removed per hit <output data-damage-output>${CONFIG.projectilePower}</output><input data-damage type="range" min="1" max="20" step="1" value="${CONFIG.projectilePower}" aria-label="Pieces removed per hit" /></label><p>Applies to both fighters. Cascades can knock off extra pieces. Reclaim your own pieces after ${CONFIG.ownPickupDelay} seconds.</p></div></details>`;
@@ -102,6 +116,12 @@ export class GameUI {
               <span data-roster-page aria-live="polite">1–${Math.min(ROSTER_PAGE_SIZE, templates.length)} of ${templates.length}</span>
               <button data-action="roster-next" aria-label="Next characters">→</button>
             </div>
+            <div class="evolution-select">
+              <div class="roster-label"><span>02 / CHOOSE YOUR EVOLUTION</span><span>ONE PATH PER RUN</span></div>
+              <div class="evolution-options" role="group" aria-label="Evolution path">${EVOLUTIONS.map((e, i) => `<button data-evolution="${escape(e.id)}" aria-pressed="${i === 0}" class="evolution-option${i === 0 ? ' is-selected' : ''}">${escape(e.name)}</button>`).join('')}</div>
+              <p data-evolution-description>${escape(EVOLUTIONS[0].description)}</p>
+              <small>Head → Body Form → Final Form. Spare parts wait in your reserve.</small>
+            </div>
             <button class="primary-button play-button" data-action="start"><span>Play vs. Bot</span>${icon('arrow')}</button>
             <p class="play-caption">Free to play · In your browser · Keyboard and mouse</p>
             <p class="touch-note">Browse and preview punks on your phone. To play, use a computer with a keyboard and mouse.</p>
@@ -121,7 +141,7 @@ export class GameUI {
           <div class="section-heading"><p class="section-kicker">02 / HOW TO PLAY</p><h2 id="how-title">Easy to learn.<br>Hard to stay in one piece.</h2></div>
           <div class="rules-grid">
             <article><span class="step-number">01</span><h3>Break them apart</h3><p>Move, aim, and shoot. Press Space to dash. Face an easy Balanced bot first, then a medium one. From round 3, face any of the four bot styles at full strength.</p><div class="rule-controls"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><span>+ mouse</span></div></article>
-            <article><span class="step-number">02</span><h3>Build yourself back up</h3><p>Move near debris to collect it. Pieces fill gaps first, then grow your punk. Reclaim your own pieces after ${CONFIG.ownPickupDelay} seconds.</p><span class="rule-tag">REPAIR → GROW</span></article>
+            <article><span class="step-number">02</span><h3>Build your punk</h3><p>Choose an evolution. Loot repairs missing pieces, then builds its body from the head down. Parts that do not fit wait in the side reserve and carry into the next round. Reclaim your own pieces after ${CONFIG.ownPickupDelay} seconds.</p><span class="rule-tag">REPAIR → BUILD → SAVE SPARES</span></article>
             <article><span class="step-number">03</span><h3>Protect your Core</h3><p>Lose ${Math.round(CONFIG.coreProtectionLoss * 100)}% of your starting pieces and your Core stays exposed for the rest of the round. Destroy the enemy Core to win, then collect the remaining debris.</p><span class="rule-tag">WIN → COLLECT → NEXT ROUND</span></article>
           </div>
           <div class="keyboard-guide"><span><kbd>Space</kbd> Dash · ${CONFIG.dashCooldown} s</span><span><kbd>P</kbd> / <kbd>Esc</kbd> Pause</span><span><kbd>R</kbd> Start Over</span><span><kbd>M</kbd> Sound</span><span>Win to carry your build into the next round.</span></div>
@@ -152,9 +172,10 @@ export class GameUI {
         <div class="fighter fighter--enemy"><span class="fighter__marker"></span><div><span class="fighter__label" data-bot-style>OPPONENT · BOT</span><strong><span data-enemy-pieces>0</span><small data-enemy-piece-label>pieces</small></strong><span class="core-status" data-enemy-core>Core protected</span></div></div>
       </section>
 
-      <div class="collection-hud" data-section="hud" hidden><span class="collection-hud__icon" aria-hidden="true">+</span><div><span class="collection-hud__title">PIECES COLLECTED</span><span class="collection-hud__values"><b data-repairs>0</b> repaired <span>·</span> <b data-growth>0</b> added</span></div></div>
+      ${reservePanel('player')}${reservePanel('enemy')}
+      <div class="collection-hud" data-section="hud" hidden><span class="collection-hud__icon" aria-hidden="true">+</span><div><span class="collection-hud__title" data-evolution-title>YOUR EVOLUTION</span><span class="collection-hud__values"><b data-repairs>0</b> repaired <span>·</span> <b data-growth>0</b> added</span><span class="evolution-status" data-evolution-status></span><progress data-evolution-progress max="1" value="0" aria-label="Body assembly"></progress></div></div>
       <div class="dash-hud" data-section="hud" hidden><kbd>SPACE</kbd><div><strong>DASH</strong><span data-dash-status>Ready</span></div><progress data-dash-progress max="1" value="1" aria-label="Dash readiness"></progress></div>
-      <div class="victory-collection" data-section="collecting" role="status" hidden><span class="section-kicker">VICTORY!</span><strong>Collecting your loot</strong><span><b data-victory-collected>0</b> / <b data-victory-total>0</b> <span data-victory-piece-label>pieces</span></span><progress data-victory-progress max="1" value="0" aria-label="Victory collection"></progress><small>Repair first. Then grow.</small></div>
+      <div class="victory-collection" data-section="collecting" role="status" hidden><span class="section-kicker">VICTORY!</span><strong>Assembling your next form</strong><span><b data-victory-collected>0</b> / <b data-victory-total>0</b> <span data-victory-piece-label>pieces</span></span><progress data-victory-progress max="1" value="0" aria-label="Victory collection"></progress><small>Loot + reserve. Repair, build, save the rest.</small></div>
 
       <footer class="controls-bar" data-section="hud" hidden><div class="control-hint"><span class="key-group"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span><span>move</span></div><span class="control-divider"></span><div class="control-hint"><span class="mouse-icon" aria-hidden="true"></span><span>aim & fire</span></div><div class="control-hint control-hint--extra"><kbd>P</kbd><span>pause</span><kbd>R</kbd><span>restart</span></div><span class="controls-bar__note">MOVE NEAR PIECES TO COLLECT THEM</span></footer>
 
@@ -162,12 +183,12 @@ export class GameUI {
 
       <div class="modal-backdrop" data-section="result" hidden><section class="modal result-modal" role="dialog" aria-modal="true" aria-labelledby="result-title">
         <div class="result-badge" data-result-badge>VICTORY</div><h2 id="result-title">You Win!</h2>
-        <p data-result-description>Enemy Core destroyed. Your mutant keeps growing.</p>
-        <div class="result-survivor" data-result-survivor><span>YOUR MUTANT</span><strong><b data-carried-pieces>0</b> <small data-carried-piece-label>pieces</small></strong><span data-size-ratio></span></div>
+        <p data-result-description>Enemy Core destroyed. Your build keeps growing.</p>
+        <div class="result-survivor" data-result-survivor><span>YOUR BUILD</span><strong><b data-carried-pieces>0</b> <small data-carried-piece-label>pieces</small></strong><span data-size-ratio></span></div>
         <div class="result-stats"><div><strong data-result-repairs>0</strong><span>REPAIRED</span></div><div><strong data-result-growth>0</strong><span>ADDED</span></div><div><strong data-result-direct>0</strong><span title="Enemy pieces removed by your shots">SHOT OFF</span></div><div><strong data-result-cascade>0</strong><span title="Enemy pieces detached in cascades">BROKE LOOSE</span></div></div>
         <div class="result-caption"><span>TIME <b data-result-time>00:00</b></span><span>HITS <b data-result-hits>0</b></span></div>
         <p class="victory-bonus" data-victory-bonus></p>
-        <button class="primary-button round-action" data-action="next"><span><strong>Next Round</strong><small data-next-round-note>Keep your mutant · next round</small></span>${icon('arrow')}</button>
+        <button class="primary-button round-action" data-action="next"><span><strong>Next Round</strong><small data-next-round-note>Keep your build · next round</small></span>${icon('arrow')}</button>
         <button class="secondary-button round-action round-action--new" data-action="restart"><span><strong>Start Over</strong><small>Back to base form · round 1</small></span>${icon('reset')}</button>
         <button class="secondary-button" data-action="lobby">Choose Character</button>
         <p class="result-footnote" data-result-footnote>Only attached pieces carry into the next round.</p>
@@ -179,6 +200,17 @@ export class GameUI {
     this.element.addEventListener('click', (event) => {
       const target = (event.target as Element).closest<HTMLButtonElement>('button');
       if (!target) return;
+      if (target.dataset.evolution) {
+        const evolution = EVOLUTIONS.find(e => e.id === target.dataset.evolution);
+        if (!evolution) return;
+        this.element.querySelectorAll<HTMLButtonElement>('[data-evolution]').forEach(button => {
+          const selected = button.dataset.evolution === evolution.id;
+          button.classList.toggle('is-selected', selected); button.setAttribute('aria-pressed', String(selected));
+        });
+        this.setText('[data-evolution-description]', evolution.description);
+        this.callbacks.onEvolution(evolution.id);
+        return;
+      }
       if (target.dataset.character) {
         this.select(target.dataset.character);
         return;
@@ -270,6 +302,10 @@ export class GameUI {
     }
   }
 
+  reserveStage(side: 'player' | 'enemy'): HTMLElement {
+    return this.element.querySelector<HTMLElement>(`[data-reserve-stage="${side}"]`)!;
+  }
+
   update(data: UpdateData): void {
     this.setText('[data-player-pieces]', data.playerPieces);
     this.setText('[data-enemy-pieces]', data.enemyPieces);
@@ -277,6 +313,19 @@ export class GameUI {
     this.setText('[data-enemy-piece-label]', pieceWord(data.enemyPieces));
     this.setText('[data-repairs]', data.repairs);
     this.setText('[data-growth]', data.growth);
+    const e = data.evolution;
+    this.setText('[data-evolution-title]', e ? `${e.name.toUpperCase()} · ${e.stage === 2 ? 'BODY FORM' : 'FINAL FORM'}` : 'YOUR EVOLUTION');
+    this.setText('[data-evolution-status]', e ? `${e.built} / ${e.target} body pieces · ${Math.floor(e.fraction * 100)}%` : '');
+    const progress = this.element.querySelector<HTMLProgressElement>('[data-evolution-progress]')!;
+    progress.value = e?.fraction ?? 0;
+    progress.title = e?.stage === 2 ? `Complete ${EVOLUTION_THRESHOLD * 100}% of Body Form, then win to unlock Final Form` : 'Build and repair Final Form';
+    this.setText('[data-reserve]', e?.reserve ?? 0);
+    this.setText('[data-enemy-reserve]', data.enemyReserve);
+    for (const [side, count] of [['player', e?.reserve ?? 0], ['enemy', data.enemyReserve]] as const) {
+      this.setText(`[data-reserve-unit="${side}"]`, `${pieceWord(count)} saved`);
+      this.element.querySelector<HTMLElement>(`[data-reserve-empty="${side}"]`)!.hidden = count > 0;
+      this.setText(`[data-reserve-note="${side}"]`, count > 240 ? `Showing 240 of ${count} saved pieces` : side === 'player' ? 'Saved for repairs & growth' : 'Saved for the next build');
+    }
     this.setText('[data-clock]', time(data.elapsed));
     this.setText('[data-round]', data.round);
     const difficultyLabel = data.botDifficulty === 'normal' ? '' : ` · ${BOT_DIFFICULTIES[data.botDifficulty].name.toUpperCase()}`;
@@ -309,22 +358,22 @@ export class GameUI {
   showResult(won: boolean, stats: ResultStats): void {
     this.element.classList.toggle('is-win', won);
     this.setText('[data-result-badge]', `ROUND ${stats.round} · ${won ? 'VICTORY' : 'DEFEAT'}`);
-    this.setText('#result-title', won ? 'Victory!' : 'Ready to rebuild?');
-    this.setText('[data-result-description]', won ? 'Enemy Core destroyed. Loot collected. Your mutant is ready for the next round.' : 'Your Core was destroyed. Start a new run with your base build.');
+    this.setText('#result-title', won ? 'You Win!' : 'Ready to rebuild?');
+    this.setText('[data-result-description]', won ? 'Enemy Core destroyed. Loot collected. Your build is ready for the next round.' : 'Your Core was destroyed. Start a new run with your base build.');
     this.element.querySelector<HTMLElement>('[data-victory-bonus]')!.hidden = !won;
     this.setText('[data-victory-bonus]', `Victory loot: +${stats.victoryCollected} ${pieceWord(stats.victoryCollected)}${stats.victorySkipped ? ` · ${stats.victorySkipped} left behind` : ''}`);
     this.element.querySelector<HTMLElement>('[data-result-survivor]')!.hidden = !won;
     this.setText('[data-carried-pieces]', stats.carriedPieces);
     this.setText('[data-carried-piece-label]', pieceWord(stats.carriedPieces));
-    this.setText('[data-size-ratio]', `${(stats.carriedPieces / stats.basePieces).toFixed(2)}× your starting piece count`);
-    this.setText('[data-next-round-note]', `Keep your mutant · round ${stats.round + 1}`);
+    this.setText('[data-size-ratio]', `${stats.evolutionName} · ${stats.reserve} in reserve${stats.evolved ? ' · FINAL FORM UNLOCKED!' : ''}`);
+    this.setText('[data-next-round-note]', `Keep your build + reserve · round ${stats.round + 1}`);
     const next = this.element.querySelector<HTMLButtonElement>('[data-action="next"]')!;
     next.hidden = !won;
     next.disabled = !won;
     const restart = this.element.querySelector<HTMLButtonElement>('[data-section="result"] [data-action="restart"]')!;
     restart.classList.toggle('primary-button', !won);
     restart.classList.toggle('secondary-button', won);
-    this.setText('[data-result-footnote]', won ? 'Your attached pieces and damage carry over. The next opponent starts with a fresh build.' : 'Win with your Core intact to carry your mutant into the next round.');
+    this.setText('[data-result-footnote]', won ? 'Your build, damage, and reserve carry over. The next opponent starts with a base head.' : 'Start Over resets your body and reserve.');
     this.setText('[data-result-repairs]', stats.repairs);
     this.setText('[data-result-growth]', stats.growth);
     this.setText('[data-result-direct]', stats.direct);

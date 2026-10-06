@@ -1,40 +1,64 @@
 {
   "checks": [
     {
+      "character": "mosher",
+      "monochrome": false,
+      "file": "mosher-brick-assembly.png",
+      "status": "✓ All parts connected to core · 0 intersections"
+    },
+    {
+      "character": "mosher",
+      "monochrome": true,
+      "file": "mosher-brick-assembly-silhouette.png",
+      "status": "✓ All parts connected to core · 0 intersections"
+    },
+    {
+      "character": "guitar",
+      "monochrome": false,
+      "file": "guitar-brick-assembly.png",
+      "status": "✓ All parts connected to core · 0 intersections"
+    },
+    {
+      "character": "guitar",
+      "monochrome": true,
+      "file": "guitar-brick-assembly-silhouette.png",
+      "status": "✓ All parts connected to core · 0 intersections"
+    },
+    {
       "character": "spider",
       "monochrome": false,
       "file": "spider-brick-assembly.png",
-      "status": "✓ Все детали связаны с ядром · 0 пересечений"
+      "status": "✓ All parts connected to core · 0 intersections"
     },
     {
       "character": "spider",
       "monochrome": true,
       "file": "spider-brick-assembly-silhouette.png",
-      "status": "✓ Все детали связаны с ядром · 0 пересечений"
+      "status": "✓ All parts connected to core · 0 intersections"
     },
     {
       "character": "bass",
       "monochrome": false,
       "file": "bass-brick-assembly.png",
-      "status": "✓ Все детали связаны с ядром · 0 пересечений"
+      "status": "✓ All parts connected to core · 0 intersections"
     },
     {
       "character": "bass",
       "monochrome": true,
       "file": "bass-brick-assembly-silhouette.png",
-      "status": "✓ Все детали связаны с ядром · 0 пересечений"
+      "status": "✓ All parts connected to core · 0 intersections"
     },
     {
       "character": "frontman",
       "monochrome": false,
       "file": "frontman-brick-assembly.png",
-      "status": "✓ Все детали связаны с ядром · 0 пересечений"
+      "status": "✓ All parts connected to core · 0 intersections"
     },
     {
       "character": "frontman",
       "monochrome": true,
       "file": "frontman-brick-assembly-silhouette.png",
-      "status": "✓ Все детали связаны с ядром · 0 пересечений"
+      "status": "✓ All parts connected to core · 0 intersections"
     }
   ],
   "errors": []

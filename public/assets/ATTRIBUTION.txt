@@ -1,5 +1,12 @@
 # Third-party notices
 
+## Project license scope
+
+Punk Brick Arena's original code and documentation are MIT-licensed, copyright
+(c) 2026 azaticus (azkian1). See the root `LICENSE` file. This license does not
+relicense third-party code, images, character likenesses, audio, or trademarks.
+The following notices and upstream terms apply to their respective materials.
+
 ## Combat audio
 
 - `public/assets/audio/gunshot.wav`: excerpt of **22 Magnum.wav**, from
@@ -76,6 +83,6 @@ These examples are from the same pinned repository revision:
 
 The source PNGs are retained at `public/assets/source/`; exact Git blob hashes are recorded in `src/assets/provenance.json`. These are generator sample busts with game-specific display names.
 
-The upstream README explicitly states that its MIT license covers code only, not CryptoPunks images or any trademark. Those images and the likenesses of these example models retain their respective third-party rights; this prototype does not assert ownership or a license for commercial redistribution of those artworks. Replace the examples with owned or appropriately licensed source images for a public release. The same local generator pipeline supports that replacement.
+The upstream README explicitly states that its MIT license covers code only, not CryptoPunks images or any trademark. Those images and the likenesses of these example models retain their respective third-party rights. Their inclusion in this fan project is not a grant of an open-content license or a claim that permission for redistribution has been established. Anyone reusing or distributing the artwork must establish the applicable rights separately; consult the [CryptoPunks license terms](https://licenseterms.cryptopunks.app/) or replace the examples with owned or appropriately licensed source images. The same local generator pipeline supports that replacement.
 
 Upstream parts data is attributed to Rebrickable. LEGO, BrickLink, and CryptoPunks are not affiliated with this prototype.

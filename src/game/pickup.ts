@@ -1,5 +1,5 @@
 import { CONFIG } from './config';
-import { attachPiece } from './structure';
+import { collectPiece } from './evolution';
 import type { AttachmentResult, Piece, Random, Structure, Vec3 } from './types';
 
 export interface PickupState {
@@ -64,8 +64,8 @@ export function collectNearbyDrops<T extends PickupDrop>(
   const results: CollectedPickup<T>[] = [];
   for (const { drop, collector } of candidates) {
     if (collected.has(drop) || (counts.get(collector) ?? 0) >= CONFIG.pickupBatchSize) continue;
-    if (collector.structure.pieces.size >= CONFIG.maxPieces) continue;
-    const attachment = attachPiece(collector.structure, drop.piece, rng);
+    if (!collector.structure.evolution && collector.structure.pieces.size >= CONFIG.maxPieces) continue;
+    const attachment = collectPiece(collector.structure, drop.piece, rng);
     if (!attachment) {
       let rejected = failedPlacements.get(drop);
       if (!rejected) { rejected = new WeakMap(); failedPlacements.set(drop, rejected); }

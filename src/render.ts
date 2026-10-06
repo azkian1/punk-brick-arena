@@ -1,11 +1,61 @@
 import * as THREE from 'three';
-import type { Piece, Structure } from './game/types';
+import type { EvolutionState, Piece, Structure, Vec3 } from './game/types';
 import { CONFIG } from './game/config';
 
 const box = new THREE.BoxGeometry(1, 1, 1);
 const stud = new THREE.CylinderGeometry(0.29, 0.29, 0.16, 8);
 const brickMaterial = new THREE.MeshStandardMaterial({ roughness: 0.68, metalness: 0.02 });
 const dummy = new THREE.Object3D();
+const instanceColor = new THREE.Color();
+const instanceMatrix = new THREE.Matrix4();
+const pickInverse = new THREE.Matrix4();
+const pickLocalMatrix = new THREE.Matrix4();
+const pickRay = new THREE.Ray();
+const pickBox = new THREE.Box3();
+const pickSphere = new THREE.Sphere();
+const pickMesh: THREE.Mesh = new THREE.Mesh(box, brickMaterial);
+const pickIntersections: THREE.Intersection[] = [];
+
+// Character bodies contain axis-aligned boxes in mesh space. Reject missed boxes
+// before the exact Three.js triangle test, preserving gaps, sides and near/far limits.
+function raycastBricks(this: THREE.InstancedMesh, raycaster: THREE.Raycaster, intersections: THREE.Intersection[]) {
+  if (!this.boundingSphere) this.computeBoundingSphere();
+  pickSphere.copy(this.boundingSphere!).applyMatrix4(this.matrixWorld);
+  if (!raycaster.ray.intersectsSphere(pickSphere)) return;
+  pickRay.copy(raycaster.ray).applyMatrix4(pickInverse.copy(this.matrixWorld).invert());
+  const matrices = this.instanceMatrix.array;
+  pickMesh.geometry = this.geometry;
+  pickMesh.material = this.material;
+  for (let i = 0; i < this.count; i++) {
+    const offset = i * 16;
+    const x = matrices[offset + 12], y = matrices[offset + 13], z = matrices[offset + 14];
+    const sx = matrices[offset] / 2, sy = matrices[offset + 5] / 2, sz = matrices[offset + 10] / 2;
+    pickBox.min.set(x - sx, y - sy, z - sz); pickBox.max.set(x + sx, y + sy, z + sz);
+    if (!pickRay.intersectsBox(pickBox)) continue;
+    pickLocalMatrix.fromArray(matrices, offset);
+    pickMesh.matrixWorld.multiplyMatrices(this.matrixWorld, pickLocalMatrix);
+    pickMesh.raycast(raycaster, pickIntersections);
+    for (const intersection of pickIntersections) {
+      intersection.instanceId = i; intersection.object = this; intersections.push(intersection);
+    }
+    pickIntersections.length = 0;
+  }
+}
+
+function scaledTranslation(x: number, y: number, z: number, sx: number, sy: number, sz: number) {
+  return instanceMatrix.set(sx, 0, 0, x, 0, sy, 0, y, 0, 0, sz, z, 0, 0, 0, 1);
+}
+
+function updateInstances(mesh: THREE.InstancedMesh) {
+  mesh.instanceMatrix.clearUpdateRanges();
+  mesh.instanceMatrix.addUpdateRange(0, mesh.count * 16);
+  mesh.instanceMatrix.needsUpdate = true;
+  if (mesh.instanceColor) {
+    mesh.instanceColor.clearUpdateRanges();
+    mesh.instanceColor.addUpdateRange(0, mesh.count * 3);
+    mesh.instanceColor.needsUpdate = true;
+  }
+}
 const projectileBody = new THREE.BoxGeometry(1, 1.2, 1);
 const projectileStud = new THREE.CylinderGeometry(0.3, 0.3, 0.2, 16);
 const projectileMaterials = {
@@ -32,6 +82,8 @@ export class CharacterView {
   studs: THREE.InstancedMesh;
   ring: THREE.Mesh;
   core: THREE.Mesh;
+  groundOffset = 0;
+  private bodyBounds = new THREE.Box3();
   private revision = -1;
   private growInstances(kind: 'body' | 'studs', required: number) {
     const previous = this[kind];
@@ -42,6 +94,7 @@ export class CharacterView {
     mesh.castShadow = previous.castShadow;
     mesh.receiveShadow = previous.receiveShadow;
     mesh.frustumCulled = false;
+    if (kind === 'body') mesh.raycast = raycastBricks;
     this.root.remove(previous);
     previous.dispose();
     this.root.add(mesh);
@@ -49,6 +102,7 @@ export class CharacterView {
   }
   constructor(scene: THREE.Scene, accent: string) {
     this.body = new THREE.InstancedMesh(box, brickMaterial, 512);
+    this.body.raycast = raycastBricks;
     this.studs = new THREE.InstancedMesh(stud, brickMaterial, 2048);
     this.body.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.studs.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -69,35 +123,44 @@ export class CharacterView {
   sync(s: Structure) {
     if (s.revision === this.revision) return;
     this.revision = s.revision;
+    this.groundOffset = 0;
+    if (s.pieces.size) {
+      this.groundOffset = Infinity;
+      for (const p of s.pieces.values()) this.groundOffset = Math.min(this.groundOffset, p.position.y);
+    }
+    this.body.position.y = this.studs.position.y = this.core.position.y = -this.groundOffset;
     this.growInstances('body', s.pieces.size);
     let studCount = 0;
     for (const p of s.pieces.values()) {
       if (p.shape !== 'tile' && p.shape !== 'slope') studCount += Math.floor(p.size.x) * Math.floor(p.size.z);
     }
     this.growInstances('studs', studCount);
+    // A grown instance buffer is a new mesh and needs the same floor offset.
+    this.body.position.y = this.studs.position.y = -this.groundOffset;
     let i = 0, j = 0;
+    this.bodyBounds.makeEmpty();
     for (const p of s.pieces.values()) {
-      dummy.position.set(p.position.x + p.size.x / 2, p.position.y + p.size.y / 2, p.position.z + p.size.z / 2);
-      dummy.rotation.set(0, 0, 0);
-      dummy.scale.set(Math.max(0.04, p.size.x - 0.035), Math.max(0.04, p.size.y - 0.025), Math.max(0.04, p.size.z - 0.035));
-      dummy.updateMatrix();
-      this.body.setMatrixAt(i, dummy.matrix);
-      this.body.setColorAt(i++, new THREE.Color(p.color));
+      const x = p.position.x + p.size.x / 2, y = p.position.y + p.size.y / 2, z = p.position.z + p.size.z / 2;
+      const sx = Math.max(0.04, p.size.x - 0.035), sy = Math.max(0.04, p.size.y - 0.025), sz = Math.max(0.04, p.size.z - 0.035);
+      this.body.setMatrixAt(i, scaledTranslation(x, y, z, sx, sy, sz));
+      instanceColor.set(p.color);
+      this.body.setColorAt(i++, instanceColor);
+      this.bodyBounds.min.min(pickBox.min.set(x - sx / 2, y - sy / 2, z - sz / 2));
+      this.bodyBounds.max.max(pickBox.max.set(x + sx / 2, y + sy / 2, z + sz / 2));
       if (p.shape === 'tile' || p.shape === 'slope') continue;
       for (let sx = 0; sx < Math.floor(p.size.x); sx++) for (let sz = 0; sz < Math.floor(p.size.z); sz++) {
-        dummy.position.set(p.position.x + sx + 0.5, p.position.y + p.size.y + 0.07, p.position.z + sz + 0.5);
-        dummy.scale.set(1, 1, 1);
-        dummy.updateMatrix();
-        this.studs.setMatrixAt(j, dummy.matrix);
-        this.studs.setColorAt(j++, new THREE.Color(p.color));
+        this.studs.setMatrixAt(j, scaledTranslation(p.position.x + sx + 0.5, p.position.y + p.size.y + 0.07, p.position.z + sz + 0.5, 1, 1, 1));
+        this.studs.setColorAt(j++, instanceColor);
       }
     }
     this.body.count = i;
     this.studs.count = j;
-    this.body.instanceMatrix.needsUpdate = this.studs.instanceMatrix.needsUpdate = true;
-    if (this.body.instanceColor) this.body.instanceColor.needsUpdate = true;
-    if (this.studs.instanceColor) this.studs.instanceColor.needsUpdate = true;
-    this.body.computeBoundingSphere();
+    updateInstances(this.body); updateInstances(this.studs);
+    this.body.boundingBox = this.bodyBounds;
+    this.body.boundingSphere ??= new THREE.Sphere();
+    this.bodyBounds.getBoundingSphere(this.body.boundingSphere);
+    // Include float32 instance-matrix rounding at the broad-phase boundary.
+    this.body.boundingSphere.radius += 1e-5;
   }
   dispose(scene: THREE.Scene) {
     scene.remove(this.root, this.ring);
@@ -107,8 +170,104 @@ export class CharacterView {
   }
 }
 
+/** A DOM-aligned stock preview rendered through the arena's existing WebGL context. */
+export class ReserveView {
+  private scene = new THREE.Scene();
+  private camera = new THREE.OrthographicCamera(-10, 10, 10, -10, 0.1, 200);
+  private root = new THREE.Group();
+  private bricks = new THREE.InstancedMesh(box, brickMaterial, 240);
+  private tops = new THREE.InstancedMesh(stud, brickMaterial, 7680);
+  private state?: EvolutionState;
+  private revision = -1;
+  private bounds = new THREE.Sphere(new THREE.Vector3(), 10);
+  constructor(private stage: HTMLElement, private side: -1 | 1) {
+    this.scene.background = new THREE.Color(side < 0 ? '#f5f0ff' : '#eff4f7');
+    this.scene.add(new THREE.HemisphereLight('#ffffff', '#99a1b5', 2.5));
+    const light = new THREE.DirectionalLight('#ffffff', 3.1);
+    light.position.set(-12, 22, 18);
+    this.scene.add(light);
+    const pad = new THREE.Mesh(new THREE.BoxGeometry(10, 0.5, 14), new THREE.MeshStandardMaterial({ color: side < 0 ? '#e6dcf5' : '#dbe6ed', roughness: .85 }));
+    pad.position.y = -0.1;
+    const edge = new THREE.MeshStandardMaterial({ color: side < 0 ? '#ac8cd4' : '#97afbe', roughness: .75 });
+    for (const direction of [-1, 1]) {
+      const rail = new THREE.Mesh(new THREE.BoxGeometry(.25, .55, 14), edge);
+      rail.position.set(direction * 4.9, .1, 0);
+      const end = new THREE.Mesh(new THREE.BoxGeometry(10, .55, .25), edge);
+      end.position.set(0, .1, direction * 6.9);
+      this.root.add(rail, end);
+    }
+    this.bricks.count = this.tops.count = 0;
+    this.bricks.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.tops.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.bricks.frustumCulled = this.tops.frustumCulled = false;
+    this.root.add(pad, this.bricks, this.tops);
+    this.scene.add(this.root);
+  }
+  sync(state: EvolutionState | undefined, visible: boolean) {
+    this.root.visible = visible;
+    if (this.state === state && this.revision === (state?.reserveRevision ?? -1)) return;
+    this.state = state; this.revision = state?.reserveRevision ?? -1;
+    const pieces = state?.reserve ?? [], heights = new Float32Array(9 * 13);
+    const random = (seed: number) => { const n = Math.sin(seed * 127.1 + 311.7) * 43758.5453; return n - Math.floor(n); };
+    const pose = new THREE.Matrix4(), unit = new THREE.Vector3(1, 1, 1);
+    let j = 0;
+    const count = Math.min(240, pieces.length);
+    for (let i = 0; i < count; i++) {
+      const piece = pieces[Math.floor(i * pieces.length / count)];
+      const w = Math.min(8, Math.max(1, Math.ceil(piece.size.x * .4))), d = Math.min(12, Math.max(1, Math.ceil(piece.size.z * .4)));
+      const x = Math.floor((random(i * 4) + random(i * 4 + 1)) / 2 * (10 - w));
+      const z = Math.floor((random(i * 4 + 2) + random(i * 4 + 3)) / 2 * (14 - d));
+      let y = 0.2;
+      for (let a = x; a < x + w; a++) for (let b = z; b < z + d; b++) y = Math.max(y, heights[a + b * 9]);
+      const sx = piece.size.x * .4, sy = piece.size.y * .4, sz = piece.size.z * .4;
+      for (let a = x; a < x + w; a++) for (let b = z; b < z + d; b++) heights[a + b * 9] = y + sy + .04;
+      dummy.position.set(x - 4.5 + sx / 2, y + sy / 2, z - 6.5 + sz / 2);
+      dummy.rotation.set((random(i + 19) - .5) * .18, (random(i + 53) - .5) * .65, (random(i + 101) - .5) * .18);
+      dummy.scale.set(sx - .015, sy - .01, sz - .015); dummy.updateMatrix();
+      pose.compose(dummy.position, dummy.quaternion, unit);
+      instanceColor.set(piece.color);
+      this.bricks.setMatrixAt(i, dummy.matrix); this.bricks.setColorAt(i, instanceColor);
+      if (piece.shape === 'tile' || piece.shape === 'slope') continue;
+      for (let a = 0; a < piece.size.x; a++) for (let b = 0; b < piece.size.z && j < 7680; b++) {
+        dummy.position.set((a + .5) * .4 - sx / 2, sy / 2 + .028, (b + .5) * .4 - sz / 2).applyMatrix4(pose);
+        dummy.scale.setScalar(.4); dummy.updateMatrix();
+        this.tops.setMatrixAt(j, dummy.matrix); this.tops.setColorAt(j++, instanceColor);
+      }
+    }
+    this.bricks.count = count; this.tops.count = j;
+    for (const mesh of [this.bricks, this.tops]) {
+      updateInstances(mesh);
+      mesh.computeBoundingBox();
+    }
+    new THREE.Box3().setFromObject(this.root).getBoundingSphere(this.bounds);
+  }
+  sideInset(width: number) {
+    const rect = this.stage.getBoundingClientRect();
+    if (!rect.width || !rect.height) return 0;
+    return (this.side < 0 ? rect.right : width - rect.left) + 18;
+  }
+  render(renderer: THREE.WebGLRenderer) {
+    if (!this.root.visible) return;
+    const rect = this.stage.getBoundingClientRect();
+    if (rect.width < 1 || rect.height < 1) return;
+    const canvas = renderer.domElement.getBoundingClientRect();
+    const aspect = rect.width / rect.height;
+    const halfHeight = this.bounds.radius * 1.08 / Math.min(1, aspect);
+    this.camera.left = -halfHeight * aspect; this.camera.right = halfHeight * aspect;
+    this.camera.top = halfHeight; this.camera.bottom = -halfHeight;
+    this.camera.position.copy(this.bounds.center).add(new THREE.Vector3(16, 24, 28));
+    this.camera.lookAt(this.bounds.center);
+    this.camera.updateProjectionMatrix();
+    const x = rect.left - canvas.left, y = canvas.bottom - rect.bottom;
+    renderer.setViewport(x, y, rect.width, rect.height);
+    renderer.setScissor(x, y, rect.width, rect.height);
+    renderer.render(this.scene, this.camera);
+  }
+}
+
 export class ArenaRenderer {
   renderer: THREE.WebGLRenderer;
+  reserveViews: ReserveView[] = [];
   scene = new THREE.Scene();
   camera = new THREE.OrthographicCamera(-55, 55, 35, -35, 0.1, 300);
   raycaster = new THREE.Raycaster();
@@ -118,10 +277,13 @@ export class ArenaRenderer {
   private aimRing: THREE.Mesh;
   private shake = 0;
   private previewMode = false;
+  private combatHalfHeight = 37 / CONFIG.cameraZoom;
   width = 1;
   height = 1;
   constructor(public canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
+    // One frame includes the arena and both stock previews.
+    this.renderer.info.autoReset = false;
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -203,10 +365,29 @@ export class ArenaRenderer {
     this.width = Math.max(1, this.canvas.clientWidth); this.height = Math.max(1, this.canvas.clientHeight);
     this.renderer.setSize(this.width, this.height, false);
     const aspect = this.width / this.height;
-    const halfHeight = this.previewMode ? Math.max(18, 14 / aspect) : Math.max(37 / CONFIG.cameraZoom, (CONFIG.arenaWidth / 2 + 6) / aspect);
+    const inset = this.previewMode ? 0 : Math.max(0, ...this.reserveViews.map(view => view.sideInset(this.width)));
+    const arenaAspect = Math.max(1, this.width - inset * 2) / this.height;
+    const halfHeight = this.previewMode ? Math.max(18, 14 / aspect) : Math.max(this.combatHalfHeight, (CONFIG.arenaWidth / 2 + 3) / arenaAspect);
     this.camera.left = -halfHeight * aspect; this.camera.right = halfHeight * aspect;
     this.camera.top = halfHeight; this.camera.bottom = -halfHeight;
     this.camera.updateProjectionMatrix();
+  }
+  fitCombat(actors: { x: number; z: number; bounds: { min: Vec3; max: Vec3 } }[]) {
+    if (this.previewMode) return;
+    const length = Math.hypot(68, 76), upY = 76 / length, upZ = -68 / length;
+    let low = -CONFIG.arenaDepth / 2 * -upZ, high = -low;
+    for (const { z, bounds } of actors) {
+      for (const y of [0, (bounds.max.y - bounds.min.y) * CONFIG.characterScale]) {
+        for (const dz of [bounds.min.z, bounds.max.z]) {
+          const projected = y * upY + (z + dz * CONFIG.characterScale) * upZ;
+          low = Math.min(low, projected); high = Math.max(high, projected);
+        }
+      }
+    }
+    const center = (low + high) / 2;
+    this.cameraTarget.set(0, center * upY, center * upZ);
+    const next = Math.max(37 / CONFIG.cameraZoom, (high - low) * .67);
+    if (Math.abs(next - this.combatHalfHeight) > .1) { this.combatHalfHeight = next; this.resize(); }
   }
   pointer(clientX: number, clientY: number, target?: { mesh: THREE.InstancedMesh; x: number; z: number }) {
     const rect = this.canvas.getBoundingClientRect();
@@ -224,8 +405,16 @@ export class ArenaRenderer {
   frame(dt: number) {
     this.shake *= Math.exp(-dt * 14);
     this.camera.position.set((Math.random() - 0.5) * this.shake, 68, 76 + (Math.random() - 0.5) * this.shake);
+    if (!this.previewMode) this.camera.position.add(this.cameraTarget);
     this.camera.lookAt(this.cameraTarget);
+    this.renderer.info.reset();
     this.renderer.render(this.scene, this.camera);
+    if (!this.previewMode) {
+      this.renderer.setScissorTest(true);
+      for (const view of this.reserveViews) view.render(this.renderer);
+      this.renderer.setScissorTest(false);
+      this.renderer.setViewport(0, 0, this.width, this.height);
+    }
   }
   pieceMesh(piece: Piece) {
     const mesh = new THREE.Mesh(box, new THREE.MeshStandardMaterial({ color: piece.color, roughness: 0.65 }));

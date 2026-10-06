@@ -17,7 +17,7 @@ npm run dev
 
 Dependency installation may require registry access. After dependencies are available, the game build and character-generation pipeline use local files. There is no environment-variable setup, API key, database migration, or generator download step.
 
-The locked tool versions at this review are Three.js 0.180.0, TypeScript 5.9.3, Vite 7.3.6, Vitest 3.2.7, tsx 4.23.15, and pngjs 7.0.0. `package.json` specifies compatible ranges; `package-lock.json` records exact versions.
+The locked tool versions after the 2026-10-06 security review are Three.js 0.180.0, TypeScript 5.9.3, Vite 7.3.6, Vitest 4.1.11, tsx 4.23.15, and pngjs 7.0.0. `package.json` specifies compatible ranges; `package-lock.json` records exact versions. See [Security audit](SECURITY_AUDIT.md) for the targeted test-runner upgrade and its verification.
 
 ## Commands and build behavior
 
@@ -28,14 +28,16 @@ The locked tool versions at this review are Three.js 0.180.0, TypeScript 5.9.3, 
 | `npm test -- --maxWorkers=1 --no-file-parallelism` | Runs the suite serially; useful when the long stress test times out during parallel execution |
 | `npm test -- src/game/structure.test.ts` | Runs one test file while working on structural rules |
 | `npm run build` | Runs `tsc --noEmit`, then the Vite production build |
+| `npm run security:check` | Runs the security guard tests and scans the working tree and an existing fresh `dist/` build; run `npm run build` first |
 | `npm run preview` | Serves the existing production build on loopback; use the URL printed by Vite |
 | `npm run assets:generate` | Rewrites template JSON and diagnostics from the local roster images |
+| `npx tsx scripts/generate-evolutions.ts` | Exports the ten approved body blueprints to geometry-only runtime JSON |
 
-The development wrapper sets `configFile: false` and disables dependency auto-discovery/prebundling with an empty include list. There is no project Vite configuration file. Adding a Vite config alone will not change this development server's options; update the wrapper when needed. CLI flags appended to `npm run dev` are not forwarded to Vite by the wrapper.
+The development wrapper sets `configFile: false` and disables dependency auto-discovery/prebundling with an empty include list. The project `vite.config.js` configures production builds and preview: it adds the production Content Security Policy and preview HTTP security headers. The wrapper deliberately does not load that config, so local development retains its own settings. Update the wrapper to change development options; CLI flags appended to `npm run dev` are not forwarded to Vite by the wrapper.
 
 TypeScript targets ES2022 with strict checking, bundler module resolution, DOM libraries, and JSON imports. Its include scope is `src/`, including tests and vendored TypeScript. Files in `scripts/` and `artifacts/` are outside that type-check scope. Running the relevant script is necessary to verify those paths.
 
-There are no configured lint, formatting, coverage, browser-test, deployment, or CI scripts in this snapshot. `npm run build` does not run tests or regenerate assets.
+There are no configured lint, formatting, coverage, deployment, or CI scripts in this snapshot. Local browser audit scripts are documented in [Testing](TESTING.md); they require an existing Playwright installation and Chrome. `npm run build` does not run tests, the security scan, or asset generation.
 
 ## Configuration reference
 
@@ -51,22 +53,30 @@ All values below come from [src/game/config.ts](../src/game/config.ts). Times ar
 | `botShotInterval` | 0.62 | Base Balanced and non-panic Sniper firing interval, before difficulty multiplication |
 | `dashDuration` / `dashCooldown` | 0.18 / 2.4 | Dash duration and recharge in simulation seconds |
 | `dashSpeedMultiplier` | 3.3 | Dash speed relative to normal player movement |
-| `victoryMinDuration` / `victoryPickupBatchSize` | 2.4 / 16 | Minimum reward animation time and maximum placement attempts per step |
+| `victoryMinDuration` / `victoryPickupBatchSize` | 2.4 / 16 | Minimum reward time; separate per-step budgets for incoming loot attempts and reserve attachments |
 | `projectilePower` | 10 | Initial direct-removal power for both fighters |
 | `projectileSize` | 1.25 | Projectile visual scale and planar collision diameter |
 | `pickupRadius` | 2.8 | Minimum collection radius |
 | `pickupReach` | 0.75 | Margin added to scaled horizontal bounds |
-| `pickupBatchSize` | 8 | Maximum successful pickups per actor per simulation step |
+| `pickupBatchSize` | 8 | Maximum pickups per actor per step; also the separate default reserve-assembly budget |
 | `pickupDelay` | 0.8 | Minimum drop age; settled state is also required |
 | `ownPickupDelay` | 5 | Last owner's minimum drop age |
-| `cameraZoom` | 1.25 | Combat camera framing factor, constrained by aspect ratio |
+| `cameraZoom` | 1.25 | Minimum combat framing factor; actual height and aspect ratio can expand the view |
 | `coreProtectionLoss` | 0.6 | Loss fraction used to derive the fixed round-start threshold |
 | `characterScale` | 0.5 | Local stud units to world scale during combat |
-| `maxPieces` | 16,000 | Live pickup ceiling per actor; also used to size debris capacity |
+| `maxPieces` | 16,000 | Attached-piece ceiling per actor; evolved fighters can still bank loot; debris render buffers grow separately |
 
 Damage can be overridden at runtime by the lobby/pause slider (integer 1–20). It applies when a projectile hits, including projectiles already in flight after resuming. Starting another fight does not reset this page-level setting.
 
-Some constants live elsewhere: `main.ts` defines a 60 Hz simulation, 0.1-second frame-delta clamp, 1.8-second projectile lifetime, and 24 starting drops; `ui.ts` defines six roster entries per page; `render.ts` defines initial instance capacities and pixel-ratio limits. Search those files before treating `CONFIG` as an exhaustive settings API.
+Some constants live elsewhere: `main.ts` defines a 60 Hz simulation, 0.1-second frame-delta clamp, 1.8-second projectile lifetime, and 24 starting drops; `ui.ts` defines six roster entries per page; `render.ts` defines initial instance capacities, pixel-ratio limits, and the 240-piece reserve sample. `EVOLUTION_THRESHOLD` in `evolution.ts` is 0.85, and body geometry lives in generated JSON. Search those files before treating `CONFIG` as an exhaustive settings API.
+
+World debris starts with a 1,024-instance render buffer and expands when needed; it does not impose a logical loot limit. Large buffers are released on round reset. Settled debris reuses unchanged transforms and colors, while moving or compacted entries update their affected buffer ranges.
+
+### Evolution data and tuning
+
+`src/game/evolution.ts` owns the five display names/descriptions, exact-dimension slot matching, repair priority, reserve retries, and the phase-3 threshold. The active phase-2 plan starts with only the chosen head; runtime export does not award donor stock or colored prototype parts. Changing a silhouette requires rebuilding its prototype and running `npx tsx scripts/generate-evolutions.ts`. Changing portraits uses the separate `assets:generate` command. See [Evolution and reserve](EVOLUTION.md) for the full pipeline.
+
+Keep `revision` for attached geometry and `reserveRevision` for stock changes consistent. Cached frontiers, bounds, character instances, and side piles use them. Check both incoming pickup and stored-part assembly when changing capacity or batch settings. The 85% threshold is evaluated after victory collection/assembly, never during active combat; the same threshold is shown in the UI.
 
 ### Bot tuning outside CONFIG
 
@@ -105,9 +115,9 @@ Upload the complete contents of `dist/` to a static host, preserving relative fi
 
 The current source uses root-absolute `/assets/...` URLs for portraits and audio and the default Vite base. Hosting at the domain root is the supported configuration. Hosting below a path prefix requires updating both Vite's base and those asset URLs, then checking the built site; changing the base alone does not rewrite hardcoded runtime paths.
 
-The development and preview servers bind to `127.0.0.1`. They are local inspection tools. The custom development server has a fixed strict port and does not silently choose another port.
+The development and preview servers bind to `127.0.0.1`. They are local inspection tools. The custom development server has a fixed strict port and does not silently choose another port. The production HTML carries a Content Security Policy; preview additionally applies HTTP security headers. A static hosting provider must configure its own response headers, including `frame-ancestors`, which cannot be enforced by an HTML meta policy. See [Security audit](SECURITY_AUDIT.md) for the tested scope and hosting limitations.
 
-The reviewed English build succeeds with a large-chunk warning: the JavaScript bundle is approximately 1,473 kB minified (209 kB gzip). Templates and Three.js are imported into the application bundle. This is a known output-size warning, not a TypeScript error or a measured runtime failure.
+The evolution integration build succeeds with a large-chunk warning: templates, ten body blueprints, and Three.js are imported into the application bundle, above Vite's 500 kB warning threshold. This is an output-size warning, not a TypeScript error or a measured runtime failure. The prototype viewer and local QA artifacts are not included in the default application build.
 
 ## Making changes
 
@@ -115,11 +125,11 @@ Change game rules in `src/game/` and exercise their existing tests. Keep structu
 
 Change roster content through the catalog, source PNGs, and generation pipeline. Do not hand-edit the generated template array as the primary workflow. See [Assets](ASSETS.md) for provenance and replacement requirements.
 
-Change UI text in `ui.ts` and related runtime messages/metadata as needed. UI copy, accessibility labels, character subtitles, and metadata are English. Keep button labels consistent: Next Round preserves the mutant; Start Over resets the run. The code has no locale selector or translation dictionary. For UI work, manually check lobby scrolling, canvas reparenting, dialogs, focus, and resize behavior.
+Change UI text in `ui.ts` and related runtime messages/metadata as needed. UI copy, accessibility labels, character subtitles, evolution names/descriptions, prototype text, and project documentation must be English with no Cyrillic characters. Use Body Form for phase 2 and Final Form for phase 3, including HUD, tooltips, and prototype captions. Keep button labels consistent: Next Round preserves the build and reserve; Start Over resets both. The code has no locale selector or translation dictionary. For UI work, manually check lobby scrolling, canvas reparenting, dialogs, focus, and resize behavior.
 
 Control changes span the event handlers in `main.ts`, movement rules in `movement.ts`, and hints/HUD in `ui.ts`. Preserve the form-input and native button-key guards when adjusting shortcuts. Menu changes can also affect phase gating, modal focus, top-bar `inert`, and responsive rules in `style.css`; check playing, collecting, pause, victory, and defeat separately. UI fixtures must supply a real `#arena` canvas and all current update/result fields, including dash, bot style/difficulty, and victory counters.
 
-When rules, configuration, scripts, or assets change, update the corresponding documentation and run the checks appropriate to that change. Keep design ideas labeled as deferred until implemented.
+When rules, configuration, scripts, or assets change, update the corresponding documentation and run the checks appropriate to that change.
 
 ## Troubleshooting
 
@@ -135,7 +145,10 @@ When rules, configuration, scripts, or assets change, update the corresponding d
 | P/Escape or another game shortcut does nothing while adjusting damage | Form inputs bypass game shortcuts; leave the slider or use the Resume button |
 | Space activates a menu control instead of dashing | Native button/link/settings keyboard handling takes priority; dash is available only during combat |
 | No Next Round action after defeat | Expected: only a living winner can carry its construction forward |
-| Victory progress finishes below 100% | The meter counts successful attachments; rejected or over-capacity pieces are skipped and reported on the result |
+| Collected pieces go to the pile without increasing body progress | Their exact dimensions may not fit a currently connected repair/body slot; stock is retained and retried as the build changes |
+| Body progress drops after a Final Form unlock | Phase 3 has a larger target and reuses actual inventory; this does not grant a complete body or imply lost parts |
+| A full body keeps collecting without getting larger | Phase 3 is the final silhouette; extra valid loot stays in reserve for repairs |
+| Victory progress finishes below 100% | The meter counts pieces collected into body or reserve; only invalid loot is rejected. Evolution assembly can continue briefly after collection reaches 100% |
 | Long round stress test exceeds 30 seconds | Retry with one worker using the command above; see [Testing](TESTING.md) for the recorded timeout and serial result |
 | Asset tests fail after replacing a portrait | Update provenance and roster-specific expectations deliberately, regenerate, then rerun tests |
 | Old local review page fails | `artifacts/` is ignored and may contain stale fixtures; use the current game and maintained tests |

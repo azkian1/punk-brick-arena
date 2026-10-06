@@ -8,8 +8,10 @@ import { collectNearbyDrops, pickupRadiusForBounds, type PickupState } from './g
 import { createDash, startDash, movePlayer, moveBody, clampToArena } from './game/movement';
 import { BOT_LABELS, BOT_DIFFICULTIES, createBot, thinkBot } from './game/bots';
 import { createVictoryCollection, stepVictoryCollection, type VictoryCollection } from './game/victory';
-import type { CharacterTemplate, Piece, Structure } from './game/types';
-import { ArenaRenderer, CharacterView, createProjectile } from './render';
+import { assembleReserve, evolutionProgress } from './game/evolution';
+import { DebrisStack, debrisFloorY, debrisRenderSize } from './game/debris';
+import type { CharacterTemplate, EvolutionId, Piece, Structure } from './game/types';
+import { ArenaRenderer, CharacterView, ReserveView, createProjectile } from './render';
 import { GameUI } from './ui';
 import { Sound } from './sound';
 import './style.css';
@@ -19,6 +21,7 @@ interface Actor {
   id: 'player' | 'enemy'; template: CharacterTemplate; structure: Structure;
   view: CharacterView; x: number; z: number; vx: number; vz: number;
   cooldown: number; pickupRadius: number; hurt: number; radius: number; boundsRevision: number;
+  bounds: ReturnType<typeof getBounds>;
 }
 interface Shot { owner: Actor; x: number; z: number; vx: number; vz: number; life: number; mesh: THREE.Group }
 interface Drop extends PickupState { piece: Piece; x: number; y: number; z: number; vx: number; vy: number; vz: number; rotation: number }
@@ -30,13 +33,24 @@ const canvas = document.querySelector<HTMLCanvasElement>('#arena')!;
 let renderer: ArenaRenderer;
 try { renderer = new ArenaRenderer(canvas); }
 catch {
-  root.innerHTML = '<section style="padding:10vw;font-family:Arial;background:#f2f5f7;height:100vh"><h1>The 3D arena could not start</h1><p>This game needs WebGL. Try enabling hardware acceleration or opening the game in another browser.</p><button onclick="location.reload()">Try Again</button></section>';
+  const section = document.createElement('section');
+  section.className = 'webgl-error';
+  const heading = document.createElement('h1');
+  heading.textContent = 'The 3D arena could not start';
+  const explanation = document.createElement('p');
+  explanation.textContent = 'This game needs WebGL. Try enabling hardware acceleration or opening the game in another browser.';
+  const reload = document.createElement('button');
+  reload.textContent = 'Try Again';
+  reload.addEventListener('click', () => location.reload());
+  section.append(heading, explanation, reload);
+  root.replaceChildren(section);
   throw new Error('WebGL renderer unavailable');
 }
 const sound = new Sound();
 let phase: Phase = 'lobby';
 let round: RoundState | null = null;
 let selected = CHARACTER_TEMPLATES[0].id;
+let selectedEvolution: EvolutionId = 'mosher';
 let damage: number = CONFIG.projectilePower;
 let actors: Actor[] = [];
 let shots: Shot[] = [];
@@ -57,14 +71,32 @@ let pointerPosition = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
 const keys = new Set<string>();
 const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 const transform = new THREE.Object3D();
-const maxDrops = CONFIG.maxPieces * 2 + 64;
-const droppedView = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial({ roughness: 0.7 }), maxDrops);
+const dropColor = new THREE.Color();
+const dropGeometry = new THREE.BoxGeometry(1, 1, 1);
+const dropMaterial = new THREE.MeshStandardMaterial({ roughness: 0.7 });
+const initialDropCapacity = 1024;
+let droppedView = new THREE.InstancedMesh(dropGeometry, dropMaterial, initialDropCapacity);
+let renderedDrops: Drop[] = [];
+let renderedDropTransforms = new Float64Array(initialDropCapacity * 4);
 droppedView.castShadow = true;
 droppedView.frustumCulled = false;
 droppedView.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
 renderer.scene.add(droppedView);
+function resizeDropView(capacity: number) {
+  const previous = droppedView;
+  droppedView = new THREE.InstancedMesh(dropGeometry, dropMaterial, capacity);
+  droppedView.castShadow = true;
+  droppedView.frustumCulled = false;
+  droppedView.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  renderer.scene.remove(previous);
+  previous.dispose();
+  renderer.scene.add(droppedView);
+  renderedDrops = [];
+  renderedDropTransforms = new Float64Array(capacity * 4);
+}
 const particleView = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial(), 500);
 particleView.frustumCulled = false;
+particleView.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
 renderer.scene.add(particleView);
 const ui = new GameUI(root, CHARACTER_TEMPLATES, {
   onStart: (id) => { selected = id; startRound(); },
@@ -79,18 +111,23 @@ const ui = new GameUI(root, CHARACTER_TEMPLATES, {
   onMute: () => toggleMute(),
   onSelect: (id) => { selected = id; if (phase === 'lobby') showPreview(); },
   onDamageChange: (value) => { damage = Math.max(1, Math.min(20, Math.round(value))); updateUI(); },
+  onEvolution: (id) => { selectedEvolution = id; },
 });
+const reserveViews = [new ReserveView(ui.reserveStage('player'), -1), new ReserveView(ui.reserveStage('enemy'), 1)];
+renderer.reserveViews = reserveViews;
 
 function emptyStats(): Stats { return { elapsed: 0, repairs: 0, growth: 0, shots: 0, hits: 0, direct: 0, cascade: 0 }; }
 function createActor(id: Actor['id'], template: CharacterTemplate, x: number, z: number, structure = createStructure(template)): Actor {
   const view = new CharacterView(renderer.scene, id === 'player' ? '#7c3aed' : '#638596');
   view.sync(structure);
-  return { id, template, structure, view, x, z, vx: 0, vz: 0, cooldown: 0, pickupRadius: CONFIG.pickupRadius, hurt: 0, radius: 3.3, boundsRevision: -1 };
+  return { id, template, structure, view, x, z, vx: 0, vz: 0, cooldown: 0, pickupRadius: CONFIG.pickupRadius, hurt: 0, radius: 3.3, boundsRevision: -1, bounds: getBounds(structure) };
 }
 function clearRound() {
   actors.forEach(a => a.view.dispose(renderer.scene));
   shots.forEach(s => renderer.scene.remove(s.mesh));
   actors = []; shots = []; drops = []; particles = [];
+  renderedDrops = [];
+  if (droppedView.instanceMatrix.count > initialDropCapacity * 4) resizeDropView(initialDropCapacity);
   keys.clear(); firing = false; dashRequested = false;
   dash = createDash(); victory = null; botPanic = false;
 }
@@ -108,7 +145,7 @@ function showPreview() {
   updateUI();
 }
 function startRound() {
-  beginRound(newRound(CHARACTER_TEMPLATES, selected));
+  beginRound(newRound(CHARACTER_TEMPLATES, selected, Math.random, selectedEvolution));
 }
 function beginRound(state: RoundState) {
   sound.unlock();
@@ -116,6 +153,7 @@ function beginRound(state: RoundState) {
   round = state;
   const spawnX = CONFIG.arenaWidth * 0.31;
   actors = [createActor('player', state.playerTemplate, -spawnX, 0, state.player), createActor('enemy', state.enemyTemplate, spawnX, 0, state.enemy)];
+  for (const actor of actors) { updateBounds(actor); clampToArena(actor); }
   stats = emptyStats(); simTime = 0; toastDelay = 0;
   phase = 'playing';
   resumePhase = 'playing';
@@ -133,7 +171,7 @@ function seedDrops(count: number, offset: number) {
     const p = source[i % source.length];
     if (!p) continue;
     const angle = i * 2.399, radius = 5 + (i % 5) * 1.4;
-    drops.push({ ownerId: null, piece: { ...p, id: `round-${round?.number ?? 0}/loose-${i}`, position: { ...p.position }, size: { ...p.size } }, x: Math.cos(angle) * radius + offset, z: Math.sin(angle) * radius, y: p.size.y * CONFIG.characterScale / 2 + 0.06, vx: 0, vy: 0, vz: 0, age: 2, settled: true, rotation: Math.random() * Math.PI });
+    drops.push({ ownerId: null, piece: { ...p, id: `round-${round?.number ?? 0}/loose-${i}`, position: { ...p.position }, size: { ...p.size } }, x: Math.cos(angle) * radius + offset, z: Math.sin(angle) * radius, y: debrisFloorY(p) + 0.02, vx: 0, vy: 0, vz: 0, age: 2, settled: true, rotation: Math.random() * Math.PI });
   }
 }
 function togglePause() {
@@ -154,6 +192,12 @@ function finish(won: boolean) {
   const defeated = actors[won ? 1 : 0];
   burst(defeated.x, 3, defeated.z, 50, '#ed7c47');
   if (won) {
+    const reserve = defeated.structure.evolution;
+    if (reserve) {
+      for (const piece of reserve.reserve) drops.push({ ownerId: 'enemy', piece, x: CONFIG.arenaWidth / 2 + 7, y: 1, z: 2,
+        vx: 0, vy: 0, vz: 0, age: 0, settled: true, rotation: 0 });
+      reserve.reserve = []; reserve.reserveRevision++;
+    }
     victory = createVictoryCollection(drops);
     phase = 'collecting';
     ui.setScreen('collecting');
@@ -164,7 +208,9 @@ function showResult(won: boolean) {
   phase = 'result';
   updateUI();
   ui.showResult(won, { ...stats, round: round!.number, carriedPieces: actors[0].structure.pieces.size, basePieces: round!.playerTemplate.pieces.length,
-    victoryCollected: victory?.collected ?? 0, victorySkipped: victory?.skipped ?? 0 });
+    victoryCollected: victory?.collected ?? 0, victorySkipped: victory?.skipped ?? 0,
+    reserve: actors[0].structure.evolution?.reserve.length ?? 0,
+    evolutionName: evolutionProgress(actors[0].structure)?.name ?? '', evolved: victory?.evolved ?? false });
 }
 function fire(actor: Actor, tx: number, tz: number, interval: number = CONFIG.shotInterval) {
   if (actor.cooldown > 0) return;
@@ -174,7 +220,8 @@ function fire(actor: Actor, tx: number, tz: number, interval: number = CONFIG.sh
   dx /= length; dz /= length;
   actor.cooldown = interval;
   const mesh = createProjectile(actor.id);
-  const x = actor.x + dx * (actor.radius + CONFIG.projectileSize / 2), z = actor.z + dz * (actor.radius + CONFIG.projectileSize / 2);
+  // Start inside the character so a growing radius cannot skip nearby targets.
+  const x = actor.x, z = actor.z;
   mesh.position.set(x, 3.2, z);
   renderer.scene.add(mesh);
   shots.push({ owner: actor, x, z, vx: dx * CONFIG.projectileSpeed, vz: dz * CONFIG.projectileSpeed, life: 1.8, mesh });
@@ -189,8 +236,7 @@ function burst(x: number, y: number, z: number, count: number, color: string) {
 }
 function knockOff(target: Actor, pieces: Piece[]) {
   for (const piece of pieces) {
-    if (drops.length >= maxDrops) break;
-    const local = new THREE.Vector3(piece.position.x + piece.size.x / 2, piece.position.y + piece.size.y / 2, piece.position.z + piece.size.z / 2);
+    const local = new THREE.Vector3(piece.position.x + piece.size.x / 2, piece.position.y + piece.size.y / 2 - target.view.groundOffset, piece.position.z + piece.size.z / 2);
     local.multiplyScalar(CONFIG.characterScale).applyAxisAngle(new THREE.Vector3(0, 1, 0), target.view.root.rotation.y);
     const angle = Math.random() * Math.PI * 2, speed = 11 + Math.random() * 10;
     drops.push({ ownerId: target.id, piece, x: target.x + local.x, y: Math.max(0.5, local.y), z: target.z + local.z, vx: Math.cos(angle) * speed, vy: 4 + Math.random() * 7, vz: Math.sin(angle) * speed, age: 0, settled: false, rotation: Math.random() * Math.PI });
@@ -220,6 +266,7 @@ function hit(shot: Shot, target: Actor) {
 function updateBounds(a: Actor) {
   if (a.boundsRevision === a.structure.revision) return;
   const b = getBounds(a.structure);
+  a.bounds = b;
   a.pickupRadius = pickupRadiusForBounds(b);
   a.radius = Math.min(Math.min(CONFIG.arenaWidth, CONFIG.arenaDepth) / 2 - 2,
     Math.max(2.2, Math.max(b.max.x - b.min.x, b.max.z - b.min.z) * CONFIG.characterScale * 0.44));
@@ -237,31 +284,51 @@ function bot(dt: number) {
 }
 function updateDrops(dt: number, collect: boolean) {
   const damping = Math.exp(-dt * 3.4);
+  const falling: Drop[] = [];
   for (let i = drops.length - 1; i >= 0; i--) {
     const d = drops[i]; d.age += dt;
     if (!d.settled) {
       d.vy -= 25 * dt; d.x += d.vx * dt; d.y += d.vy * dt; d.z += d.vz * dt;
       d.vx *= damping; d.vz *= damping; d.rotation += dt * d.vx * 0.4;
-      const floor = d.piece.size.y * CONFIG.characterScale / 2 + 0.04;
-      if (d.y <= floor) { d.y = floor; if (Math.abs(d.vy) > 2.2) d.vy = -d.vy * 0.23; else { d.settled = true; d.vy = 0; } }
       d.x = THREE.MathUtils.clamp(d.x, -CONFIG.arenaWidth / 2 + 2, CONFIG.arenaWidth / 2 - 2);
       d.z = THREE.MathUtils.clamp(d.z, -CONFIG.arenaDepth / 2 + 2, CONFIG.arenaDepth / 2 - 2);
+      if (d.vy <= 0) falling.push(d);
+    }
+  }
+  if (falling.length) {
+    const stack = new DebrisStack();
+    for (const d of drops) if (d.settled) stack.add(d);
+    for (const d of falling) {
+      if (!stack.canLand(d)) continue;
+      const landingY = stack.landingY(d);
+      if (d.y > landingY) continue;
+      d.y = landingY;
+      if (Math.abs(d.vy) > 2.2) d.vy = -d.vy * 0.23;
+      else { d.settled = true; d.vy = 0; stack.add(d); }
     }
   }
   if (!collect) return;
   const results = collectNearbyDrops(drops, actors);
-  let repairs = 0, growth = 0;
+  let repairs = 0, growth = 0, banked = 0;
   for (const { drop, collector, attachment } of results) {
     burst(drop.x, 0.5, drop.z, 2, collector.id === 'player' ? '#ed9963' : '#61a68b');
     if (collector.id !== 'player') continue;
     if (attachment.mode === 'repair') repairs++;
-    else growth++;
+    else if (attachment.mode === 'growth') growth++;
+    else banked++;
   }
-  if (repairs + growth > 0) {
+  for (const actor of actors) {
+    const built = assembleReserve(actor.structure);
+    if (actor.id === 'player') {
+      repairs += built.filter(p => p.mode === 'repair').length;
+      growth += built.filter(p => p.mode === 'growth').length;
+    }
+  }
+  if (repairs + growth + banked > 0) {
     stats.repairs += repairs; stats.growth += growth;
     sound.play('pickup');
     if (toastDelay <= 0) {
-      ui.toast(`Collected ${repairs + growth} · ${repairs} repaired · ${growth} added`, growth > 0 ? 'growth' : 'repair');
+      ui.toast(`${repairs} repaired · ${growth} added · ${banked} sent to reserve`, growth > 0 ? 'growth' : 'repair');
       toastDelay = 1.2;
     }
   }
@@ -272,11 +339,12 @@ function tick(dt: number) {
   if (phase === 'collecting' && victory) {
     const player = actors[0];
     const collected = stepVictoryCollection(victory, drops, player, dt);
-    for (const { attachment } of collected.attachments) {
+    const built = [...collected.attachments.map(a => a.attachment), ...(victory.evolved ? [] : collected.assembled)];
+    for (const attachment of built) {
       if (attachment.mode === 'repair') stats.repairs++;
-      else stats.growth++;
+      else if (attachment.mode === 'growth') stats.growth++;
     }
-    if (collected.attachments.length) {
+    if (collected.attachments.length || collected.assembled.length) {
       sound.play('pickup', 0.6);
       if (!reducedMotion.matches) burst(player.x, 2.5, player.z, 2, '#7c3aed');
     }
@@ -316,6 +384,7 @@ function tick(dt: number) {
 }
 function draw(dt: number) {
   actors.forEach((a, index) => {
+    updateBounds(a);
     a.view.sync(a.structure);
     a.view.root.position.set(a.x, a.hurt > 0 ? Math.sin(a.hurt * 60) * 0.12 : Math.sin(simTime * 11) * Math.min(0.08, Math.hypot(a.vx, a.vz) * 0.005), a.z);
     const yaw = phase === 'lobby' ? (reducedMotion.matches ? -0.15 : Math.sin(simTime * 0.4) * 0.23 - 0.15) : THREE.MathUtils.clamp(a.vx * 0.018, -0.25, 0.25);
@@ -326,22 +395,56 @@ function draw(dt: number) {
     if (phase === 'result' && !a.structure.pieces.has(a.structure.coreId)) a.view.ring.visible = false;
     if (index === 0 && phase === 'lobby') a.view.ring.rotation.z = simTime * 0.1;
   });
+  reserveViews.forEach((view, i) => view.sync(actors[i]?.structure.evolution, phase !== 'lobby'));
+  renderer.fitCombat(actors);
   shots.forEach(s => { s.mesh.position.set(s.x, 3.2, s.z); s.mesh.rotation.set(0.15, simTime * 8, 0.1); });
+  if (drops.length > droppedView.instanceMatrix.count) resizeDropView(2 ** Math.ceil(Math.log2(drops.length)));
+  let matrixStart = drops.length, matrixEnd = -1, colorStart = drops.length, colorEnd = -1;
   drops.forEach((d, i) => {
+    const offset = i * 4, changedPiece = renderedDrops[i] !== d;
+    const moved = changedPiece || renderedDropTransforms[offset] !== d.x || renderedDropTransforms[offset + 1] !== d.y ||
+      renderedDropTransforms[offset + 2] !== d.z || renderedDropTransforms[offset + 3] !== d.rotation;
+    if (!moved) return;
     transform.position.set(d.x, d.y, d.z); transform.rotation.set(0, d.rotation, 0);
-    transform.scale.set(Math.max(0.1, d.piece.size.x * CONFIG.characterScale - 0.015), Math.max(0.1, d.piece.size.y * CONFIG.characterScale - 0.015), Math.max(0.1, d.piece.size.z * CONFIG.characterScale - 0.015));
-    transform.updateMatrix(); droppedView.setMatrixAt(i, transform.matrix); droppedView.setColorAt(i, new THREE.Color(d.piece.color));
+    const size = debrisRenderSize(d.piece);
+    transform.scale.set(size.x, size.y, size.z);
+    transform.updateMatrix(); droppedView.setMatrixAt(i, transform.matrix);
+    matrixStart = Math.min(matrixStart, i); matrixEnd = i;
+    if (changedPiece) {
+      droppedView.setColorAt(i, dropColor.set(d.piece.color));
+      colorStart = Math.min(colorStart, i); colorEnd = i;
+    }
+    renderedDrops[i] = d;
+    renderedDropTransforms[offset] = d.x; renderedDropTransforms[offset + 1] = d.y;
+    renderedDropTransforms[offset + 2] = d.z; renderedDropTransforms[offset + 3] = d.rotation;
   });
-  droppedView.count = drops.length; droppedView.instanceMatrix.needsUpdate = true;
-  if (droppedView.instanceColor) droppedView.instanceColor.needsUpdate = true;
+  renderedDrops.length = drops.length;
+  droppedView.count = drops.length;
+  if (matrixEnd >= matrixStart) {
+    droppedView.instanceMatrix.clearUpdateRanges();
+    droppedView.instanceMatrix.addUpdateRange(matrixStart * 16, (matrixEnd - matrixStart + 1) * 16);
+    droppedView.instanceMatrix.needsUpdate = true;
+  }
+  if (droppedView.instanceColor && colorEnd >= colorStart) {
+    droppedView.instanceColor.clearUpdateRanges();
+    droppedView.instanceColor.addUpdateRange(colorStart * 3, (colorEnd - colorStart + 1) * 3);
+    droppedView.instanceColor.needsUpdate = true;
+  }
   if (phase !== 'paused') for (let i = particles.length - 1; i >= 0; i--) {
     const p = particles[i]; p.life -= dt;
     if (p.life <= 0) { particles.splice(i, 1); continue; }
     p.vy -= dt * 25; p.x += p.vx * dt; p.y = Math.max(0.05, p.y + p.vy * dt); p.z += p.vz * dt;
   }
   particles.forEach((p, i) => { transform.position.set(p.x, p.y, p.z); transform.rotation.set(0, simTime, 0); transform.scale.setScalar(p.scale * p.life / p.max); transform.updateMatrix(); particleView.setMatrixAt(i, transform.matrix); particleView.setColorAt(i, p.color); });
-  particleView.count = particles.length; particleView.instanceMatrix.needsUpdate = true;
-  if (particleView.instanceColor) particleView.instanceColor.needsUpdate = true;
+  particleView.count = particles.length;
+  if (particles.length) {
+    particleView.instanceMatrix.clearUpdateRanges(); particleView.instanceMatrix.addUpdateRange(0, particles.length * 16);
+    particleView.instanceMatrix.needsUpdate = true;
+    if (particleView.instanceColor) {
+      particleView.instanceColor.clearUpdateRanges(); particleView.instanceColor.addUpdateRange(0, particles.length * 3);
+      particleView.instanceColor.needsUpdate = true;
+    }
+  }
   renderer.aim(aim.x, aim.z, phase === 'playing');
   renderer.frame(dt);
 }
@@ -355,6 +458,8 @@ function updateUI() {
     dashCooldown: dash.cooldown, dashing: dash.remaining > 0,
     botStyle: round?.enemyBehavior ?? 'balanced', botDifficulty: round?.enemyDifficulty ?? 'easy', botPanic,
     victoryCollected: victory?.collected ?? 0, victoryTotal: victory?.total ?? 0,
+    evolution: actors[0] ? evolutionProgress(actors[0].structure) : null,
+    enemyReserve: actors[1]?.structure.evolution?.reserve.length ?? 0,
   });
 }
 
@@ -396,6 +501,6 @@ function frame(now: number) {
 }
 
 // Readable diagnostics for prototype QA; contains no remote calls or player data.
-Object.defineProperty(window, '__arenaSnapshot', { get: () => ({ phase, elapsed: stats.elapsed, damage, player: actors[0] && { x: actors[0].x, z: actors[0].z, pieces: actors[0].structure.pieces.size, vacancies: actors[0].structure.vacancies.length }, enemy: actors[1] && { x: actors[1].x, z: actors[1].z, pieces: actors[1].structure.pieces.size }, drops: drops.length, projectiles: shots.length, stats: { ...stats }, drawCalls: renderer.renderer.info.render.calls }) });
+Object.defineProperty(window, '__arenaSnapshot', { get: () => ({ phase, round: round?.number, elapsed: stats.elapsed, damage, player: actors[0] && { x: actors[0].x, z: actors[0].z, pieces: actors[0].structure.pieces.size, vacancies: actors[0].structure.vacancies.length, evolution: evolutionProgress(actors[0].structure) }, enemy: actors[1] && { x: actors[1].x, z: actors[1].z, pieces: actors[1].structure.pieces.size, reserve: actors[1].structure.evolution?.reserve.length ?? 0 }, drops: drops.length, projectiles: shots.length, stats: { ...stats }, drawCalls: renderer.renderer.info.render.calls }) });
 showPreview();
 requestAnimationFrame(frame);

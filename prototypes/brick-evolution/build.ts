@@ -346,7 +346,7 @@ function assemble(id: string, label: string, stage: number, body: ReturnType<typ
     pieces.push({id:`${id}-${pieces.length}`,position:{x:px-.5,y:snap(cell.y*.4),z:cell.z-.5},size:{...source.size},color:source.color,shape:source.shape,zone:cell.zone,donor:{template:item.templateId,pieceId:source.id,copy:item.copy}});
     for(let y=0;y<found.h;y++)for(let z=0;z<found.d;z++)for(let x=0;x<found.w;x++) occupied.add(key(px+x,cell.y+y,cell.z+z));
   }
-  const model={id,name:label,subtitle:`Фаза ${stage}`,accent:'#8556ff',coreId:head.coreId,pieces,source:'Prototype assembled from exact existing game pieces'};
+  const model={id,name:label,subtitle:`Phase ${stage}`,accent:'#8556ff',coreId:head.coreId,pieces,source:'Prototype assembled from exact existing game pieces'};
   const structure=createStructure(model);
   const connected=connectedToCore(structure).size;
   if(connected!==pieces.length) throw new Error(`${id}: only ${connected}/${pieces.length} connected`);
@@ -391,7 +391,7 @@ function assemble(id: string, label: string, stage: number, body: ReturnType<typ
   const donorTotal=inventory.admitted.reduce((n,id)=>n+donors.find(t=>t.id===id)!.pieces.length,0);
   if(pieces.length-head.pieces.length+reserve.length!==donorTotal)throw new Error(`${id}: inventory mass mismatch`);
   for(const p of reserve){const ref=`${p.donor.copy}:${p.donor.template}:${p.donor.pieceId}`;if(donorRefs.has(ref))throw new Error(`${id}: reserve reused an installed part`);donorRefs.add(ref);}
-  const report={id,label,stage,pieces:pieces.length,headPieces:head.pieces.length,addedPieces:pieces.length-head.pieces.length,connected,collisions:collisions.length,shapeColorAndSizePreserved:true,cutOrScaledPieces:0,donorHeadsOpened:inventory.admitted.length,donorHeads:inventory.admitted,donorsUsed:inventory.used,unusedDonorPieces:[...inventory.queues.values()].reduce((n,q)=>n+q.length,0),solidCells,hollowedCells:hollow.length,bodyCells:maskCells,filledCells:occupied.size,discardedBoundaryDust:dust,bounds:getBounds(structure),countBySize,countByZone,limitation:'Verified against the game face-contact graph, not a physical LEGO stud/clutch or load-bearing simulation. Static concept pose; no joints, animation or gameplay integration.'};
+  const report={id,label,stage,pieces:pieces.length,headPieces:head.pieces.length,addedPieces:pieces.length-head.pieces.length,connected,collisions:collisions.length,shapeColorAndSizePreserved:true,cutOrScaledPieces:0,donorHeadsOpened:inventory.admitted.length,donorHeads:inventory.admitted,donorsUsed:inventory.used,unusedDonorPieces:[...inventory.queues.values()].reduce((n,q)=>n+q.length,0),solidCells,hollowedCells:hollow.length,bodyCells:maskCells,filledCells:occupied.size,discardedBoundaryDust:dust,bounds:getBounds(structure),countBySize,countByZone,limitation:'Verified against the game face-contact graph, not a physical LEGO stud/clutch or load-bearing simulation. Static assembly pose without articulated joints. Body geometry is exported to the game; prototype donor stock is excluded from gameplay.'};
   writeFileSync(new URL(`${id}.json`,out),JSON.stringify({model,report,reserve}));
   console.log(JSON.stringify({id,pieces:report.pieces,added:report.addedPieces,donorHeads:report.donorHeadsOpened,connected,collisions:0,bounds:report.bounds}));
   return report;

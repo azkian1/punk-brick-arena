@@ -43,7 +43,7 @@ describe('running over a pile of enemy bricks', () => {
     for (const result of results) expect(drops.includes(result.drop)).toBe(false);
   });
 
-  it('covers a wide and asymmetrically grown mutant instead of only a small circle at its center', () => {
+  it('covers a wide and asymmetrically grown build instead of only a small circle at its center', () => {
     const actor = player();
     const bounds = { min: { x: -2, y: 0, z: -3 }, max: { x: 20, y: 12, z: 4 } };
     actor.pickupRadius = pickupRadiusForBounds(bounds);
