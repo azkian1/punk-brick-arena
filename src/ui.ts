@@ -16,6 +16,7 @@ type Callbacks = {
   onSelect: (templateId: string) => void;
   onDamageChange: (value: number) => void;
   onEvolution: (id: EvolutionId) => void;
+  onMove: (x: number, z: number) => void;
 };
 type UpdateData = {
   elapsed: number;
@@ -83,6 +84,7 @@ export class GameUI {
   private rosterPage = 0;
   private screen: Screen = 'lobby';
   private damage: number = CONFIG.projectilePower;
+  private joystickPointer: number | null = null;
 
   constructor(private readonly root: HTMLElement, templates: CharacterTemplate[], callbacks: Callbacks) {
     this.callbacks = callbacks;
@@ -124,8 +126,8 @@ export class GameUI {
               <small>Head → Body Form → Final Form. Spare parts wait in your reserve.</small>
             </div>
             <button class="primary-button play-button" data-action="start"><span>Play vs. Bot</span>${icon('arrow')}</button>
-            <p class="play-caption">Free to play · In your browser · Keyboard and mouse</p>
-            <p class="touch-note">Browse and preview punks on your phone. To play, use a computer with a keyboard and mouse.</p>
+            <p class="play-caption">Free to play · In your browser · Keyboard, mouse, or touch</p>
+            <p class="touch-note">In a match, use the left joystick to move and touch the arena to aim and fire.</p>
             ${tuning()}
           </div>
           <div class="punk-preview" aria-label="Selected punk preview">
@@ -178,6 +180,10 @@ export class GameUI {
       <div class="dash-hud" data-section="hud" hidden><kbd>SPACE</kbd><div><strong>DASH</strong><span data-dash-status>Ready</span></div><progress data-dash-progress max="1" value="1" aria-label="Dash readiness"></progress></div>
       <div class="victory-collection" data-section="collecting" role="status" hidden><span class="section-kicker">VICTORY!</span><strong>Assembling your next form</strong><span><b data-victory-collected>0</b> / <b data-victory-total>0</b> <span data-victory-piece-label>pieces</span></span><progress data-victory-progress max="1" value="0" aria-label="Victory collection"></progress><small>Loot + reserve. Repair, build, save the rest.</small></div>
 
+      <div class="mobile-joystick" data-section="hud" role="group" aria-label="Movement joystick" hidden>
+        <div class="mobile-joystick__base" data-joystick><span class="mobile-joystick__knob" data-joystick-knob></span></div>
+        <span class="mobile-joystick__label">MOVE</span>
+      </div>
       <footer class="controls-bar" data-section="hud" hidden><div class="control-hint"><span class="key-group"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span><span>move</span></div><span class="control-divider"></span><div class="control-hint"><span class="mouse-icon" aria-hidden="true"></span><span>aim & fire</span></div><div class="control-hint control-hint--extra"><kbd>P</kbd><span>pause</span><kbd>R</kbd><span>restart</span></div><span class="controls-bar__note">MOVE NEAR PIECES TO COLLECT THEM</span></footer>
 
       <div class="modal-backdrop" data-section="paused" hidden><section class="modal pause-modal" role="dialog" aria-modal="true" aria-labelledby="pause-title"><div class="modal-brick" aria-hidden="true">Ⅱ</div><span class="eyebrow">TAKE YOUR TIME</span><h2 id="pause-title">Take a<br>build break.</h2><p>Your build can wait. So can your opponent.</p><button class="primary-button" data-action="resume"><span>Resume</span>${icon('play')}</button><button class="secondary-button" data-action="restart">${icon('reset')}Start Over</button><button class="secondary-button" data-action="lobby">Choose Character</button>${tuning()}</section></div>
@@ -198,6 +204,7 @@ export class GameUI {
       <div class="toast-stack" aria-live="polite" aria-atomic="false"></div>
     `;
     root.append(this.element);
+    this.setupJoystick();
     this.element.addEventListener('click', (event) => {
       const target = (event.target as Element).closest<HTMLButtonElement>('button');
       if (!target) return;
@@ -248,6 +255,59 @@ export class GameUI {
     });
   }
 
+  private setupJoystick(): void {
+    const base = this.element.querySelector<HTMLElement>('[data-joystick]')!;
+    const move = (event: PointerEvent) => {
+      if (event.pointerId !== this.joystickPointer) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const bounds = base.getBoundingClientRect();
+      const knob = this.element.querySelector<HTMLElement>('[data-joystick-knob]')!;
+      const radius = Math.max(1, (Math.min(bounds.width, bounds.height) - knob.offsetWidth) / 2);
+      const rawX = (event.clientX - (bounds.left + bounds.width / 2)) / radius;
+      const rawZ = (event.clientY - (bounds.top + bounds.height / 2)) / radius;
+      const length = Math.hypot(rawX, rawZ);
+      const scale = length > 1 ? 1 / length : 1;
+      const x = rawX * scale, z = rawZ * scale;
+      knob.style.transform = `translate(${x * radius}px, ${z * radius}px)`;
+      const deadZone = 0.12;
+      const magnitude = Math.min(1, length);
+      if (magnitude <= deadZone) this.callbacks.onMove(0, 0);
+      else {
+        const adjusted = (magnitude - deadZone) / (1 - deadZone);
+        this.callbacks.onMove(x / Math.max(magnitude, 0.001) * adjusted, z / Math.max(magnitude, 0.001) * adjusted);
+      }
+    };
+    const release = (event: PointerEvent) => {
+      if (event.pointerId !== this.joystickPointer) return;
+      event.preventDefault();
+      event.stopPropagation();
+      this.resetJoystick();
+    };
+    base.addEventListener('pointerdown', (event) => {
+      if (this.screen !== 'playing' || this.joystickPointer !== null) return;
+      event.preventDefault();
+      event.stopPropagation();
+      this.joystickPointer = event.pointerId;
+      base.setPointerCapture(event.pointerId);
+      base.classList.add('is-active');
+      move(event);
+    });
+    base.addEventListener('pointermove', move);
+    base.addEventListener('pointerup', release);
+    base.addEventListener('pointercancel', release);
+    base.addEventListener('lostpointercapture', release);
+  }
+
+  private resetJoystick(): void {
+    this.joystickPointer = null;
+    const base = this.element.querySelector<HTMLElement>('[data-joystick]');
+    const knob = this.element.querySelector<HTMLElement>('[data-joystick-knob]');
+    base?.classList.remove('is-active');
+    if (knob) knob.style.transform = '';
+    this.callbacks.onMove(0, 0);
+  }
+
   private showRosterPage(page: number): void {
     const lastPage = Math.ceil(this.templates.length / ROSTER_PAGE_SIZE) - 1;
     this.rosterPage = Math.max(0, Math.min(lastPage, page));
@@ -284,7 +344,8 @@ export class GameUI {
     const host = screen === 'lobby' ? this.element.querySelector<HTMLElement>('[data-preview-stage]')! : this.root;
     if (canvas.parentElement !== host) host.prepend(canvas);
     canvas.tabIndex = screen === 'lobby' ? -1 : 0;
-    canvas.setAttribute('aria-label', screen === 'lobby' ? '3D preview of your selected punk' : 'Game arena: WASD or arrow keys to move, mouse to aim, left click to fire, Space to dash');
+    canvas.setAttribute('aria-label', screen === 'lobby' ? '3D preview of your selected punk' : 'Game arena: use WASD, arrow keys, or the touch joystick to move; aim and fire with the mouse or by touching the arena; Space to dash');
+    if (screen !== 'playing') this.resetJoystick();
     if (changed && screen === 'lobby') this.element.scrollTop = 0;
     this.element.querySelector<HTMLElement>('.topbar')!.inert = screen === 'paused' || screen === 'result';
     this.element.querySelectorAll<HTMLElement>('[data-section]').forEach((section) => {

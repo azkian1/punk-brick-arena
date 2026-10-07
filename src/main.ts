@@ -68,6 +68,7 @@ let toastDelay = 0;
 let firing = false;
 let aim = new THREE.Vector3(18, 0, 0);
 let pointerPosition = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+let touchMovement = { x: 0, z: 0 };
 const keys = new Set<string>();
 const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 const transform = new THREE.Object3D();
@@ -112,6 +113,7 @@ const ui = new GameUI(root, CHARACTER_TEMPLATES, {
   onSelect: (id) => { selected = id; if (phase === 'lobby') showPreview(); },
   onDamageChange: (value) => { damage = Math.max(1, Math.min(20, Math.round(value))); updateUI(); },
   onEvolution: (id) => { selectedEvolution = id; },
+  onMove: (x, z) => { touchMovement = { x, z }; },
 });
 const reserveViews = [new ReserveView(ui.reserveStage('player'), -1), new ReserveView(ui.reserveStage('enemy'), 1)];
 renderer.reserveViews = reserveViews;
@@ -128,7 +130,7 @@ function clearRound() {
   actors = []; shots = []; drops = []; particles = [];
   renderedDrops = [];
   if (droppedView.instanceMatrix.count > initialDropCapacity * 4) resizeDropView(initialDropCapacity);
-  keys.clear(); firing = false; dashRequested = false;
+  keys.clear(); firing = false; dashRequested = false; touchMovement = { x: 0, z: 0 };
   dash = createDash(); victory = null; botPanic = false;
 }
 function showPreview() {
@@ -358,8 +360,8 @@ function tick(dt: number) {
   for (const a of actors) { a.cooldown -= dt; a.hurt = Math.max(0, a.hurt - dt); updateBounds(a); }
   const p = actors[0];
   aim = renderer.pointer(pointerPosition.x, pointerPosition.y, { mesh: actors[1].view.body, x: actors[1].x, z: actors[1].z });
-  const mx = Number(keys.has('KeyD') || keys.has('ArrowRight')) - Number(keys.has('KeyA') || keys.has('ArrowLeft'));
-  const mz = Number(keys.has('KeyS') || keys.has('ArrowDown')) - Number(keys.has('KeyW') || keys.has('ArrowUp'));
+  const mx = THREE.MathUtils.clamp(Number(keys.has('KeyD') || keys.has('ArrowRight')) - Number(keys.has('KeyA') || keys.has('ArrowLeft')) + touchMovement.x, -1, 1);
+  const mz = THREE.MathUtils.clamp(Number(keys.has('KeyS') || keys.has('ArrowDown')) - Number(keys.has('KeyW') || keys.has('ArrowUp')) + touchMovement.z, -1, 1);
   if (dashRequested) { startDash(dash, mx, mz, aim.x - p.x, aim.z - p.z); dashRequested = false; }
   const dashing = dash.remaining > 0;
   movePlayer(p, dash, mx, mz, dt);
@@ -501,6 +503,6 @@ function frame(now: number) {
 }
 
 // Readable diagnostics for prototype QA; contains no remote calls or player data.
-Object.defineProperty(window, '__arenaSnapshot', { get: () => ({ phase, round: round?.number, elapsed: stats.elapsed, damage, player: actors[0] && { x: actors[0].x, z: actors[0].z, pieces: actors[0].structure.pieces.size, vacancies: actors[0].structure.vacancies.length, evolution: evolutionProgress(actors[0].structure) }, enemy: actors[1] && { x: actors[1].x, z: actors[1].z, pieces: actors[1].structure.pieces.size, reserve: actors[1].structure.evolution?.reserve.length ?? 0 }, drops: drops.length, projectiles: shots.length, stats: { ...stats }, drawCalls: renderer.renderer.info.render.calls }) });
+Object.defineProperty(window, '__arenaSnapshot', { get: () => ({ phase, round: round?.number, elapsed: stats.elapsed, damage, player: actors[0] && { x: actors[0].x, z: actors[0].z, pieces: actors[0].structure.pieces.size, vacancies: actors[0].structure.vacancies.length, evolution: evolutionProgress(actors[0].structure) }, enemy: actors[1] && { x: actors[1].x, z: actors[1].z, pieces: actors[1].structure.pieces.size, reserve: actors[1].structure.evolution?.reserve.length ?? 0 }, drops: drops.length, projectiles: shots.length, input: { touchMovement: { ...touchMovement }, firing }, stats: { ...stats }, drawCalls: renderer.renderer.info.render.calls }) });
 showPreview();
 requestAnimationFrame(frame);

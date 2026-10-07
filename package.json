@@ -6,9 +6,11 @@
   "type": "module",
   "scripts": {
     "dev": "node scripts/dev.mjs",
+    "dev:mobile": "node scripts/mobile-preview.mjs",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 127.0.0.1",
     "test": "vitest run",
+    "test:mobile": "node scripts/mobile-browser-audit.mjs",
     "security:check": "node --test scripts/security-check.node.mjs && node scripts/security-check.mjs",
     "assets:generate": "tsx scripts/generate-templates.ts"
   },
