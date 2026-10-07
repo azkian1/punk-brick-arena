@@ -4,7 +4,7 @@ A browser arena prototype where one player fights a bot using destructible brick
 
 Built with TypeScript, Three.js, and Vite. The game runs in the browser with local assets and no backend or accounts. The interface and project documentation are in English.
 
-**[Play Punk Brick Arena](https://azkian1.github.io/punk-brick-arena/)** in a desktop browser with a keyboard and mouse.
+**[Play Punk Brick Arena](https://azkian1.github.io/punk-brick-arena/)** in a browser with a keyboard and mouse or touch controls.
 
 ## About the project
 
@@ -31,13 +31,13 @@ npm run dev
 
 Open [http://127.0.0.1:5173/](http://127.0.0.1:5173/). The development server binds to the local computer and requires port 5173 to be free. No environment variables or asset generation are needed for the first run: generated characters, portraits, and audio are included.
 
-Use a desktop browser with WebGL support, hardware acceleration, a keyboard, and a mouse. The lobby adapts to narrow screens, but touch combat controls are not implemented.
+Use a browser with WebGL support and hardware acceleration. Desktop play uses a keyboard and mouse. On a touch device, use the left joystick to move and touch the arena to aim and fire.
 
 ## Play
 
 1. Choose one of 17 heads and an evolution: Mosher, Guitar Demon, Stage Spider, Bass Titan, or Winged Frontman.
 2. Start against a randomly selected character controlled by an easy Balanced bot.
-3. Shoot, dash away from incoming projectiles, and move near settled debris to collect it automatically.
+3. Shoot, dodge incoming projectiles, and move near settled debris to collect it automatically. Keyboard players can also dash with Space.
 4. Reduce the opponent's construction until its Core becomes vulnerable, then destroy it.
 5. Let victory collection finish, then choose **Next Round** to keep your build or **Start Over** to restart with the base character.
 
@@ -48,6 +48,8 @@ Next Round is the victory action that preserves the build; Start Over is the res
 | WASD or arrow keys | Move in the arena plane |
 | Mouse | Aim |
 | Left mouse button | Fire; hold for repeated shots |
+| Left touch joystick | Move on touch devices |
+| Touch the arena | Aim and fire; hold for repeated shots |
 | Space | Dash in the movement direction, or toward aim from rest; 2.4-second cooldown |
 | P or Escape | Pause or resume combat or victory collection |
 | R | Restart the run at round 1 outside the lobby |
@@ -62,7 +64,7 @@ Switching away from the window or hiding the tab pauses combat or victory collec
 | Screen | Available actions |
 | --- | --- |
 | Lobby | Browse roster pages, select a head and evolution path, start a fight, adjust shared damage, toggle sound, read instructions and credits |
-| Combat | Move, aim, fire, dash, pause, restart with R, or mute with M |
+| Combat | Move, aim, fire, pause, use keyboard shortcuts, or dash with Space |
 | Victory collection | Watch automatic repair/growth; pause/resume, restart, and mute remain available; movement, fire, and dash stop |
 | Pause | Resume the interrupted phase, restart from the base character, choose a character, or adjust shared damage |
 | Victory result | Continue with Next Round, restart from the base character, or choose a character |
