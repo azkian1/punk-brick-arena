@@ -23,11 +23,15 @@ export function stepVictoryCollection<T extends VictoryDrop>(
   const removed = new Set<T>();
   let attempted = 0;
   for (const drop of state.pending) {
+    drop.age += dt;
     if (!player.structure.pieces.has(player.structure.coreId) || (!player.structure.evolution && player.structure.pieces.size >= CONFIG.maxPieces)) {
       state.skipped += state.pending.size; state.pending.clear(); break;
     }
     const dx = player.x - drop.x, dy = 2.5 - drop.y, dz = player.z - drop.z;
     const distance = Math.hypot(dx, dy, dz);
+    // Fired inventory remains locked for everyone even when combat has ended.
+    if (drop.age < (drop.lockedUntilAge ?? 0)) continue;
+    if (drop.lockedUntilAge !== undefined && !drop.settled) continue;
     if (state.elapsed < 0.3) continue;
     const step = Math.min(distance, (35 + state.elapsed * 32) * dt);
     if (distance > 0.001) {

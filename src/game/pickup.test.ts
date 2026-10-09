@@ -32,4 +32,14 @@ describe('fallen-piece ownership cooldown', () => {
     expect(canCollectDrop(drop, 'player')).toBe(true);
     expect(canCollectDrop(drop, 'enemy')).toBe(false);
   });
+
+  it('honors an explicit firing-age lock for everyone and preserves ordinary debris rules', () => {
+    const fired = { ownerId: 'player', settled: true, age: 4.999, lockedUntilAge: 5 };
+    expect(canCollectDrop(fired, 'enemy')).toBe(false);
+    expect(canCollectDrop(fired, 'player')).toBe(false);
+    expect(canCollectDrop({ ...fired, age: 5 }, 'enemy')).toBe(true);
+    expect(canCollectDrop({ ...fired, age: 5 }, 'player')).toBe(true);
+    expect(canCollectDrop({ ...fired, age: 8, settled: false }, 'enemy')).toBe(false);
+    expect(canCollectDrop({ ownerId: 'player', settled: true, age: 0.8 }, 'enemy')).toBe(true);
+  });
 });

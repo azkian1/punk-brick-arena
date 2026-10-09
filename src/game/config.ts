@@ -1,12 +1,12 @@
 /** Temporary playtest values. Damage is configurable, not a final balance decision. */
 export const CONFIG = {
-  arenaWidth: 72.5,
-  arenaDepth: 72.5,
-  movementSpeed: 15 * 1.15,
+  arenaWidth: 160,
+  arenaDepth: 160,
+  movementSpeed: 15 * 1.15 * 1.15,
   dashDuration: 0.18,
   dashCooldown: 2.4,
   dashSpeedMultiplier: 3.3,
-  botSpeed: 11.5 * 1.15,
+  botSpeed: 11.5 * 1.15 * 1.15,
   projectileSpeed: 64,
   shotInterval: 0.23,
   botShotInterval: 0.62,

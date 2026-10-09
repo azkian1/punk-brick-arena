@@ -172,6 +172,133 @@ function coreComponent(structure: Structure): Set<string> {
   return reached;
 }
 
+interface AmmunitionOrder {
+  revision: number;
+  ids: string[];
+  next: number;
+  slots: Map<string, number>;
+}
+const ammunitionOrders = new WeakMap<Structure, AmmunitionOrder>();
+
+/** A small deterministic priority queue; indices follow sorted piece IDs. */
+class IndexHeap {
+  private readonly values: number[] = [];
+  push(value: number): void {
+    let i = this.values.length;
+    this.values.push(value);
+    while (i > 0) {
+      const parent = (i - 1) >> 1;
+      if (this.values[parent] <= value) break;
+      this.values[i] = this.values[parent]; i = parent;
+    }
+    this.values[i] = value;
+  }
+  pop(): number | undefined {
+    if (!this.values.length) return undefined;
+    const first = this.values[0], last = this.values.pop()!;
+    if (this.values.length) {
+      let i = 0;
+      while (i * 2 + 1 < this.values.length) {
+        let child = i * 2 + 1;
+        if (child + 1 < this.values.length && this.values[child + 1] < this.values[child]) child++;
+        if (this.values[child] >= last) break;
+        this.values[i] = this.values[child]; i = child;
+      }
+      this.values[i] = last;
+    }
+    return first;
+  }
+}
+
+/** Build one spanning-tree peel, rather than finding articulation points for every shot. */
+function ammunitionOrder(structure: Structure): AmmunitionOrder {
+  const previous = ammunitionOrders.get(structure);
+  if (previous?.revision === structure.revision) return previous;
+  const pieces = [...structure.pieces.values()].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+  const byId = new Map(pieces.map((piece, i) => [piece.id, i]));
+  const slots = new Map<string, number>();
+  const state = structure.evolution;
+  if (state) for (let i = 0; i < state.occupied.length; i++) {
+    const id = state.occupied[i];
+    if (id && structure.pieces.has(id)) slots.set(id, i);
+  }
+  // Exact evolution slots use their precomputed graph. Free attachment/imported
+  // geometry uses the same face contacts as damage and repair.
+  const blueprint = blueprintComponent(structure);
+  const graph = blueprint && state ? pieces.map(piece =>
+    state.plan.neighbors[slots.get(piece.id)!].flatMap(slot => {
+      const id = state.occupied[slot], index = id ? byId.get(id) : undefined;
+      return index === undefined ? [] : [index];
+    }).sort((a, b) => a - b)) : contactGraph(pieces).map(edges => edges.sort((a, b) => a - b));
+  const core = byId.get(structure.coreId);
+  const parent = new Int32Array(pieces.length).fill(-1), children = new Uint32Array(pieces.length);
+  const active = new Uint8Array(pieces.length), degree = new Uint32Array(pieces.length);
+  const queue: number[] = [];
+  if (core !== undefined) { active[core] = 1; queue.push(core); }
+  for (let i = 0; i < queue.length; i++) for (const neighbor of graph[queue[i]]) {
+    if (active[neighbor]) continue;
+    active[neighbor] = 1; parent[neighbor] = queue[i]; children[queue[i]]++; queue.push(neighbor);
+  }
+  const leaves = new IndexHeap(), fallback = new IndexHeap();
+  for (const index of queue) {
+    degree[index] = graph[index].filter(neighbor => active[neighbor]).length;
+    if (index !== core && children[index] === 0) {
+      fallback.push(index);
+      if (degree[index] <= 1) leaves.push(index);
+    }
+  }
+  const pop = (heap: IndexHeap, leafOnly: boolean): number | undefined => {
+    let index: number | undefined;
+    while ((index = heap.pop()) !== undefined) {
+      if (active[index] && children[index] === 0 && (!leafOnly || degree[index] <= 1)) return index;
+    }
+    return undefined;
+  };
+  const ids: string[] = [];
+  for (;;) {
+    const index = pop(leaves, true) ?? pop(fallback, false);
+    if (index === undefined) break;
+    ids.push(pieces[index].id); active[index] = 0;
+    for (const neighbor of graph[index]) if (active[neighbor]) {
+      degree[neighbor]--;
+      if (neighbor !== core && children[neighbor] === 0 && degree[neighbor] <= 1) leaves.push(neighbor);
+    }
+    const p = parent[index];
+    if (p >= 0 && --children[p] === 0 && p !== core) {
+      fallback.push(p);
+      if (degree[p] <= 1) leaves.push(p);
+    }
+  }
+  const result = { revision: structure.revision, ids, next: 0, slots };
+  ammunitionOrders.set(structure, result);
+  return result;
+}
+
+/** Remove exactly one actual non-Core part while keeping the remainder connected. */
+export function detachAmmunitionPiece(structure: Structure): Piece | null {
+  if (!structure.pieces.has(structure.coreId) || structure.pieces.size <= 1) return null;
+  const order = ammunitionOrder(structure), id = order.ids[order.next];
+  if (id === undefined) return null;
+  const piece = structure.pieces.get(id)!;
+  order.next++;
+  structure.pieces.delete(id);
+  if (structure.evolution) {
+    const slot = order.slots.get(id);
+    if (slot !== undefined) structure.evolution.occupied[slot] = null;
+  } else recordVacancy(structure.vacancies, piece);
+  if (structure.pieces.size <= coreExposureThreshold(structure)) structure.coreExposed = true;
+  structure.revision++;
+  order.revision = structure.revision;
+  const cache = caches.get(structure);
+  if (cache) {
+    cache.connected?.delete(id);
+    // The old buckets still contain the removed part; repair must build fresh ones.
+    cache.index = undefined;
+    cache.revision = structure.revision;
+  }
+  return piece;
+}
+
 export function createStructure(template: CharacterTemplate): Structure {
   const pieces = new Map<string, Piece>();
   for (const piece of template.pieces) {

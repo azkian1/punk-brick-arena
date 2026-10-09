@@ -6,11 +6,13 @@ export interface PickupState {
   ownerId: string | null;
   age: number;
   settled: boolean;
+  /** Absolute age since firing; used by fired parts for every collector. */
+  lockedUntilAge?: number;
 }
 
 /** Ownership is the last actor to lose this piece, including stolen/grown pieces. */
 export function canCollectDrop(drop: PickupState, collectorId: string): boolean {
-  if (!drop.settled || drop.age < CONFIG.pickupDelay) return false;
+  if (!drop.settled || drop.age < CONFIG.pickupDelay || drop.age < (drop.lockedUntilAge ?? 0)) return false;
   return drop.ownerId !== collectorId || drop.age >= CONFIG.ownPickupDelay;
 }
 

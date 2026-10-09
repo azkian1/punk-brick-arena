@@ -1,32 +1,44 @@
 import * as THREE from 'three';
 import { CHARACTER_TEMPLATES } from './assets/templates';
 import { createStructure, damageStructure, getBounds, coreExposureThreshold } from './game/structure';
-import { newRound, nextRound, type RoundState } from './game/rounds';
+import { newBattleRound, nextBattleRound, battleWinner, playerBattleOutcome, releaseEliminatedReserve, type BattleRound } from './game/rounds';
 import { CONFIG } from './game/config';
-import { segmentCircleHit } from './game/collision';
+import { firstBattleImpact } from './game/battle-combat';
 import { collectNearbyDrops, pickupRadiusForBounds, type PickupState } from './game/pickup';
-import { createDash, startDash, movePlayer, moveBody, clampToArena } from './game/movement';
-import { BOT_LABELS, BOT_DIFFICULTIES, createBot, thinkBot } from './game/bots';
+import { createDash, startDash, movePlayer, moveDashingBody, clampToArena, type DashState } from './game/movement';
+import { BOT_LABELS, BOT_DIFFICULTIES, createBot, thinkBattleBot, type BotState } from './game/bots';
+import { createBotSquad, coordinateBotSquad, battleTeamId, areBattleAllies, type BotSquadRole } from './game/bot-squad';
 import { createVictoryCollection, stepVictoryCollection, type VictoryCollection } from './game/victory';
 import { assembleReserve, evolutionProgress } from './game/evolution';
 import { DebrisStack, debrisFloorY, debrisRenderSize } from './game/debris';
+import { takeAmmunitionBatch } from './game/ammunition';
+import { createPartProjectile, stepPartProjectile, projectilePartOffsets, SHOT_PICKUP_LOCK, type PartProjectile } from './game/projectiles';
+import { createRune, stepRune, collectRune } from './game/rune';
+import { generateArenaBuildings, damageArenaBuilding, resolveArenaBuildings, segmentBuildingHit, type ArenaBuilding } from './game/arena';
 import type { CharacterTemplate, EvolutionId, Piece, Structure } from './game/types';
-import { ArenaRenderer, CharacterView, ReserveView, createProjectile } from './render';
+import { ArenaRenderer, CharacterView, ReserveView, createPieceProjectile, createRuneCube, disposePieceProjectile } from './render';
 import { GameUI } from './ui';
 import { Sound } from './sound';
 import './style.css';
 
 type Phase = 'lobby' | 'playing' | 'collecting' | 'paused' | 'result';
 interface Actor {
-  id: 'player' | 'enemy'; template: CharacterTemplate; structure: Structure;
+  id: string; template: CharacterTemplate; structure: Structure;
   view: CharacterView; x: number; z: number; vx: number; vz: number;
   cooldown: number; pickupRadius: number; hurt: number; radius: number; boundsRevision: number;
   bounds: ReturnType<typeof getBounds>;
+  bot?: BotState; dash?: DashState; panic: boolean; eliminated: boolean;
+  squadRole: BotSquadRole; desiredShotCount: number; lastShotCount: number; shotsFired: number; dashStarts: number;
 }
-interface Shot { owner: Actor; x: number; z: number; vx: number; vz: number; life: number; mesh: THREE.Group }
-interface Drop extends PickupState { piece: Piece; x: number; y: number; z: number; vx: number; vy: number; vz: number; rotation: number }
+interface Shot extends PartProjectile { owner: Actor; mesh: THREE.Group }
+interface Drop extends PickupState { piece: Piece; x: number; y: number; z: number; vx: number; vy: number; vz: number; rotation: number; skipAgeOnce?: boolean }
 interface Particle { x: number; y: number; z: number; vx: number; vy: number; vz: number; life: number; max: number; color: THREE.Color; scale: number }
 interface Stats { elapsed: number; repairs: number; growth: number; shots: number; hits: number; direct: number; cascade: number }
+const combatEvents: { ownerId: string; targetId: string; kind: 'actor' | 'building'; time: number }[] = [];
+function recordImpact(ownerId: string, targetId: string, kind: 'actor' | 'building') {
+  combatEvents.push({ ownerId, targetId, kind, time: simTime });
+  if (combatEvents.length > 80) combatEvents.shift();
+}
 
 const root = document.querySelector<HTMLElement>('#app')!;
 const canvas = document.querySelector<HTMLCanvasElement>('#arena')!;
@@ -48,19 +60,22 @@ catch {
 }
 const sound = new Sound();
 let phase: Phase = 'lobby';
-let round: RoundState | null = null;
+let round: BattleRound | null = null;
 let selected = CHARACTER_TEMPLATES[0].id;
 let selectedEvolution: EvolutionId = 'mosher';
-let damage: number = CONFIG.projectilePower;
+let shotCount = 1;
+let rune = createRune();
 let actors: Actor[] = [];
 let shots: Shot[] = [];
 let drops: Drop[] = [];
 let particles: Particle[] = [];
 let stats = emptyStats();
 let simTime = 0;
-let botState = createBot('aggressor');
-let botPanic = false;
+let buildings: ArenaBuilding[] = [];
+let buildingViews: CharacterView[] = [];
+let playerPlacement = 1;
 let dash = createDash();
+let squad = createBotSquad();
 let dashRequested = false;
 let victory: VictoryCollection<Drop> | null = null;
 let resumePhase: 'playing' | 'collecting' = 'playing';
@@ -103,35 +118,46 @@ const ui = new GameUI(root, CHARACTER_TEMPLATES, {
   onStart: (id) => { selected = id; startRound(); },
   onRestart: () => startRound(),
   onNextRound: () => {
-    if (phase === 'result' && round && round.player.pieces.has(round.player.coreId) && !round.enemy.pieces.has(round.enemy.coreId)) {
-      beginRound(nextRound(CHARACTER_TEMPLATES, round));
+    if (phase === 'result' && round && battleWinner(round)?.id === 'player') {
+      beginRound(nextBattleRound(CHARACTER_TEMPLATES, round));
     }
   },
   onLobby: () => showPreview(),
   onPause: () => togglePause(),
   onMute: () => toggleMute(),
   onSelect: (id) => { selected = id; if (phase === 'lobby') showPreview(); },
-  onDamageChange: (value) => { damage = Math.max(1, Math.min(20, Math.round(value))); updateUI(); },
+  onShotCountChange: (value) => { shotCount = Math.max(1, Math.min(20, Math.round(value))); updateUI(); },
+  onDash: () => { if (phase === 'playing' && actors[0] && alive(actors[0])) dashRequested = true; },
   onEvolution: (id) => { selectedEvolution = id; },
   onMove: (x, z) => { touchMovement = { x, z }; },
 });
-const reserveViews = [new ReserveView(ui.reserveStage('player'), -1), new ReserveView(ui.reserveStage('enemy'), 1)];
+const reserveViews = [new ReserveView(ui.reserveStage('player'), -1)];
 renderer.reserveViews = reserveViews;
+const runeView = createRuneCube();
+runeView.visible = false;
+renderer.scene.add(runeView);
 
 function emptyStats(): Stats { return { elapsed: 0, repairs: 0, growth: 0, shots: 0, hits: 0, direct: 0, cascade: 0 }; }
 function createActor(id: Actor['id'], template: CharacterTemplate, x: number, z: number, structure = createStructure(template)): Actor {
-  const view = new CharacterView(renderer.scene, id === 'player' ? '#7c3aed' : '#638596');
+  const accent = ({ player: '#7c3aed', 'bot-1': '#248d79', 'bot-2': '#e56b3d', 'bot-3': '#ca9b24' } as Record<string, string>)[id] ?? '#638596';
+  const view = new CharacterView(renderer.scene, accent);
   view.sync(structure);
-  return { id, template, structure, view, x, z, vx: 0, vz: 0, cooldown: 0, pickupRadius: CONFIG.pickupRadius, hurt: 0, radius: 3.3, boundsRevision: -1, bounds: getBounds(structure) };
+  return { id, template, structure, view, x, z, vx: 0, vz: 0, cooldown: 0, pickupRadius: CONFIG.pickupRadius, hurt: 0, radius: 3.3, boundsRevision: -1, bounds: getBounds(structure), panic: false, eliminated: false,
+    dash: id === 'player' ? undefined : createDash(), squadRole: 'independent', desiredShotCount: 0, lastShotCount: 0, shotsFired: 0, dashStarts: 0 };
 }
 function clearRound() {
   actors.forEach(a => a.view.dispose(renderer.scene));
-  shots.forEach(s => renderer.scene.remove(s.mesh));
+  buildingViews.forEach(view => view.dispose(renderer.scene));
+  shots.forEach(s => disposePieceProjectile(renderer.scene, s.mesh));
   actors = []; shots = []; drops = []; particles = [];
+  buildings = []; buildingViews = [];
+  combatEvents.length = 0;
   renderedDrops = [];
   if (droppedView.instanceMatrix.count > initialDropCapacity * 4) resizeDropView(initialDropCapacity);
   keys.clear(); firing = false; dashRequested = false; touchMovement = { x: 0, z: 0 };
-  dash = createDash(); victory = null; botPanic = false;
+  dash = createDash(); victory = null; playerPlacement = 1;
+  squad = createBotSquad();
+  rune = createRune(); runeView.visible = false;
 }
 function showPreview() {
   clearRound();
@@ -147,23 +173,41 @@ function showPreview() {
   updateUI();
 }
 function startRound() {
-  beginRound(newRound(CHARACTER_TEMPLATES, selected, Math.random, selectedEvolution));
+  beginRound(newBattleRound(CHARACTER_TEMPLATES, selected, Math.random, selectedEvolution));
 }
-function beginRound(state: RoundState) {
+function beginRound(state: BattleRound) {
   sound.unlock();
   clearRound();
   round = state;
-  const spawnX = CONFIG.arenaWidth * 0.31;
-  actors = [createActor('player', state.playerTemplate, -spawnX, 0, state.player), createActor('enemy', state.enemyTemplate, spawnX, 0, state.enemy)];
+  const spawnX = CONFIG.arenaWidth * 0.36, spawnZ = CONFIG.arenaDepth * 0.36;
+  const corners = [[-spawnX, spawnZ], [spawnX, -spawnZ], [-spawnX, -spawnZ], [spawnX, spawnZ]];
+  actors = state.participants.map((participant, index) => {
+    const actor = createActor(participant.id, participant.template, corners[index][0], corners[index][1], participant.structure);
+    if (participant.style && participant.difficulty) actor.bot = createBot(participant.style, Math.random, participant.difficulty);
+    return actor;
+  });
+  for (const actor of actors) { updateBounds(actor); clampToArena(actor); }
+  // A carried final form also needs a clear spawn footprint.
+  buildings = generateArenaBuildings(Math.random, state.number).filter(building =>
+    actors.every(actor => segmentBuildingHit(actor.x, actor.z, actor.x, actor.z, building, actor.radius + 1) === null));
+  buildingViews = buildings.map(building => {
+    const view = new CharacterView(renderer.scene, '#8c9b8d');
+    view.root.position.set(building.x, 0, building.z);
+    view.ring.visible = view.core.visible = false;
+    view.sync(building.structure);
+    return view;
+  });
   for (const actor of actors) { updateBounds(actor); clampToArena(actor); }
   stats = emptyStats(); simTime = 0; toastDelay = 0;
   phase = 'playing';
   resumePhase = 'playing';
-  botState = createBot(state.enemyBehavior, Math.random, state.enemyDifficulty);
   seedDrops(24, 0);
   ui.setScreen('playing');
   renderer.setPreviewMode(false);
-  ui.toast(`Round ${state.number} · ${BOT_LABELS[state.enemyBehavior].name} · ${BOT_DIFFICULTIES[state.enemyDifficulty].name}`, 'repair');
+  const challenge = state.number === 1 ? 'Every fighter for themselves'
+    : state.number === 2 ? `${actors[1].template.name} + ${actors[2].template.name} are allied`
+    : state.number === 3 ? 'All three bots are allied against you' : 'Bot squad · Two attackers, one collector';
+  ui.toast(`Round ${state.number} · ${challenge}`, 'repair');
   updateUI();
   canvas.focus();
 }
@@ -184,22 +228,43 @@ function togglePause() {
   if (phase !== 'paused') { sound.unlock(); canvas.focus(); }
 }
 function toggleMute() { sound.muted = !sound.muted; ui.setMuted(sound.muted); updateUI(); }
+function alive(actor: Actor): boolean { return actor.structure.pieces.has(actor.structure.coreId); }
+function projectileDrops(shot: Shot): Drop[] {
+  const offsets = projectilePartOffsets(shot.pieces);
+  return shot.pieces.map((piece, i) => {
+    const position = { x: shot.x + offsets[i].x, z: shot.z + offsets[i].z, vx: 0, vz: 0,
+      radius: Math.hypot(piece.size.x, piece.size.z) * CONFIG.characterScale / 2 };
+    resolveArenaBuildings(position, buildings); clampToArena(position);
+    return { piece, ownerId: shot.ownerId, x: position.x, y: Math.max(debrisFloorY(piece), shot.y + offsets[i].y), z: position.z,
+      vx: 0, vy: Math.min(0, shot.vy), vz: 0, age: shot.age, settled: false,
+      rotation: Math.random() * Math.PI, lockedUntilAge: SHOT_PICKUP_LOCK, skipAgeOnce: true };
+  });
+}
+function eliminate(actor: Actor) {
+  if (actor.eliminated || alive(actor)) return;
+  actor.eliminated = true; actor.vx = actor.vz = 0;
+  if (actor.dash) actor.dash.remaining = 0;
+  for (const piece of releaseEliminatedReserve(actor.structure)) {
+    drops.push({ ownerId: actor.id, piece, x: actor.x + (Math.random() - 0.5) * 3, z: actor.z + (Math.random() - 0.5) * 3,
+      y: 1.5, vx: (Math.random() - 0.5) * 5, vy: 3, vz: (Math.random() - 0.5) * 5, age: 0, settled: false, rotation: 0 });
+  }
+  burst(actor.x, 3, actor.z, 50, '#ed7c47');
+  if (actor.id === 'player') {
+    playerPlacement = actors.filter(alive).length + 1;
+    firing = false; dashRequested = false; keys.clear(); dash.remaining = 0;
+  } else ui.toast(`${actor.template.name} eliminated · ${actors.filter(alive).length} remain`, 'hit');
+  updateUI();
+}
 function finish(won: boolean) {
   if (phase !== 'playing') return;
-  firing = false; dashRequested = false; keys.clear();
-  shots.forEach(shot => renderer.scene.remove(shot.mesh)); shots = [];
-  actors.forEach(actor => { actor.vx = 0; actor.vz = 0; });
+  firing = false; dashRequested = false; keys.clear(); touchMovement = { x: 0, z: 0 };
+  for (const shot of shots) { drops.push(...projectileDrops(shot)); disposePieceProjectile(renderer.scene, shot.mesh); }
+  shots = [];
+  drops.forEach(drop => { drop.skipAgeOnce = false; });
+  actors.forEach(actor => { actor.vx = 0; actor.vz = 0; if (actor.dash) actor.dash.remaining = 0; });
   dash.remaining = 0;
   sound.play(won ? 'win' : 'lose');
-  const defeated = actors[won ? 1 : 0];
-  burst(defeated.x, 3, defeated.z, 50, '#ed7c47');
   if (won) {
-    const reserve = defeated.structure.evolution;
-    if (reserve) {
-      for (const piece of reserve.reserve) drops.push({ ownerId: 'enemy', piece, x: CONFIG.arenaWidth / 2 + 7, y: 1, z: 2,
-        vx: 0, vy: 0, vz: 0, age: 0, settled: true, rotation: 0 });
-      reserve.reserve = []; reserve.reserveRevision++;
-    }
     victory = createVictoryCollection(drops);
     phase = 'collecting';
     ui.setScreen('collecting');
@@ -212,21 +277,23 @@ function showResult(won: boolean) {
   ui.showResult(won, { ...stats, round: round!.number, carriedPieces: actors[0].structure.pieces.size, basePieces: round!.playerTemplate.pieces.length,
     victoryCollected: victory?.collected ?? 0, victorySkipped: victory?.skipped ?? 0,
     reserve: actors[0].structure.evolution?.reserve.length ?? 0,
-    evolutionName: evolutionProgress(actors[0].structure)?.name ?? '', evolved: victory?.evolved ?? false });
+    evolutionName: evolutionProgress(actors[0].structure)?.name ?? '', evolved: victory?.evolved ?? false,
+    placement: won ? 1 : playerPlacement, winner: battleWinner(round!)?.template.name ?? '' });
 }
-function fire(actor: Actor, tx: number, tz: number, interval: number = CONFIG.shotInterval) {
-  if (actor.cooldown > 0) return;
-  let dx = tx - actor.x, dz = tz - actor.z;
-  const length = Math.hypot(dx, dz);
-  if (length < 0.1) return;
-  dx /= length; dz /= length;
-  actor.cooldown = interval;
-  const mesh = createProjectile(actor.id);
-  // Start inside the character so a growing radius cannot skip nearby targets.
-  const x = actor.x, z = actor.z;
-  mesh.position.set(x, 3.2, z);
+function fire(actor: Actor, tx: number, tz: number, interval: number = CONFIG.shotInterval, count = actor.id === 'player' ? shotCount : 1) {
+  actor.desiredShotCount = Number.isFinite(count) ? Math.max(0, Math.min(20, Math.trunc(count))) : 0;
+  if (actor.cooldown > 0 || !alive(actor) || Math.hypot(tx - actor.x, tz - actor.z) < 0.1) return;
+  const ammunition = takeAmmunitionBatch(actor.structure, count);
+  if (!ammunition.length) return;
+  actor.cooldown = Math.max(CONFIG.shotInterval, Number.isFinite(interval) ? interval : CONFIG.shotInterval);
+  actor.lastShotCount = ammunition.length; actor.shotsFired++;
+  const parts = ammunition.map(ammo => ammo.piece);
+  const projectile = createPartProjectile(parts, actor.id, actor.x, actor.z, tx, tz);
+  const mesh = createPieceProjectile(parts);
+  mesh.position.set(projectile.x, projectile.y, projectile.z);
   renderer.scene.add(mesh);
-  shots.push({ owner: actor, x, z, vx: dx * CONFIG.projectileSpeed, vz: dz * CONFIG.projectileSpeed, life: 1.8, mesh });
+  shots.push({ ...projectile, owner: actor, mesh });
+  updateBounds(actor);
   if (actor.id === 'player') stats.shots++;
   sound.play('shot', actor.id === 'player' ? 1 : 0.5);
 }
@@ -245,8 +312,10 @@ function knockOff(target: Actor, pieces: Piece[]) {
   }
 }
 function hit(shot: Shot, target: Actor) {
+  if (shot.ownerId === target.id || (round && areBattleAllies(round.number, shot.ownerId, target.id))) return;
+  recordImpact(shot.ownerId, target.id, 'actor');
   const wasExposed = target.structure.coreExposed;
-  const result = damageStructure(target.structure, damage);
+  const result = damageStructure(target.structure, shot.damage);
   knockOff(target, [...result.direct, ...result.cascade]);
   target.hurt = 0.2;
   burst(shot.x, 3, shot.z, 12 + Math.min(15, result.cascade.length), shot.owner.id === 'player' ? '#e56b3d' : '#5d9a86');
@@ -263,7 +332,35 @@ function hit(shot: Shot, target: Actor) {
     ui.toast(target.id === 'player' ? 'Your Core is exposed! Repairs cannot restore its protection.' : 'Enemy Core exposed!', 'hit');
     toastDelay = 2;
   }
-  if (result.eliminated) finish(target.id === 'enemy');
+  if (result.eliminated) eliminate(target);
+}
+function hitBuilding(shot: Shot, target: ArenaBuilding) {
+  recordImpact(shot.ownerId, target.id, 'building');
+  const result = damageArenaBuilding(target, shot.damage, Math.random, { x: shot.x, z: shot.z });
+  for (const piece of [...result.direct, ...result.cascade]) {
+    const position = {
+      x: target.x + (piece.position.x + piece.size.x / 2) * CONFIG.characterScale,
+      z: target.z + (piece.position.z + piece.size.z / 2) * CONFIG.characterScale,
+      vx: 0, vz: 0, radius: Math.hypot(piece.size.x, piece.size.z) * CONFIG.characterScale / 2,
+    };
+    resolveArenaBuildings(position, buildings); clampToArena(position);
+    drops.push({ piece, ownerId: null,
+      x: position.x,
+      y: Math.max(0.5, (piece.position.y + piece.size.y / 2) * CONFIG.characterScale),
+      z: position.z,
+      vx: 0, vy: 4 + Math.random() * 5, vz: 0, age: 0, settled: false, rotation: Math.random() * Math.PI });
+  }
+  burst(shot.x, 2, shot.z, 10, shot.piece.color);
+  sound.play('hit', 0.5);
+  if (shot.ownerId === 'player') { stats.hits++; stats.direct += result.direct.length; stats.cascade += result.cascade.length; }
+}
+function pointerAim(clientX: number, clientY: number) {
+  return renderer.pointer(clientX, clientY, [
+    ...actors.filter(actor => actor.id !== 'player' && alive(actor)).map(actor => ({ mesh: actor.view.body, x: actor.x, z: actor.z })),
+    ...buildings.filter(building => building.structure.pieces.size > 0).map(building => ({
+      mesh: buildingViews[buildings.indexOf(building)].body, x: building.x, z: building.z, kind: 'building' as const,
+    })),
+  ]);
 }
 function updateBounds(a: Actor) {
   if (a.boundsRevision === a.structure.revision) return;
@@ -276,19 +373,30 @@ function updateBounds(a: Actor) {
   a.boundsRevision = a.structure.revision;
 }
 function bot(dt: number) {
-  const player = actors[0], enemy = actors[1];
-  const action = thinkBot(botState, enemy, player, drops,
-    shots.map(shot => ({ ...shot, ownerId: shot.owner.id })), dt, simTime);
-  moveBody(enemy, action.x, action.z, action.speed, dt);
-  if (action.panic && !botPanic) enemy.cooldown = Math.min(enemy.cooldown, action.shotInterval);
-  botPanic = action.panic;
-  if (action.fire) fire(enemy, action.aimX, action.aimZ, action.shotInterval);
+  const living = actors.filter(alive), threats = shots.filter(shot => shot.mode === 'shot');
+  const orders = coordinateBotSquad(squad, round!.number, living, simTime);
+  for (const actor of living) {
+    if (!actor.bot) continue;
+    const hostile = (id: string) => !areBattleAllies(round!.number, actor.id, id);
+    const order = orders.get(actor.id);
+    const action = thinkBattleBot(actor.bot, actor, living.filter(other => hostile(other.id)), drops,
+      threats.filter(shot => hostile(shot.ownerId)), buildings, dt, simTime, Math.random, order);
+    actor.squadRole = order?.role ?? 'independent';
+    actor.desiredShotCount = action.shotCount;
+    const previous = { x: actor.x, z: actor.z };
+    const botDash = actor.dash!;
+    if (action.dash && startDash(botDash, action.x, action.z, action.aimX - actor.x, action.aimZ - actor.z)) actor.dashStarts++;
+    moveDashingBody(actor, botDash, action.x, action.z, action.speed, dt);
+    resolveArenaBuildings(actor, buildings, previous);
+    actor.panic = action.panic;
+    if (action.fire) fire(actor, action.aimX, action.aimZ, action.shotInterval, action.shotCount);
+  }
 }
-function updateDrops(dt: number, collect: boolean) {
+function updateDrops(dt: number, collect: boolean, advanceAges = true) {
   const damping = Math.exp(-dt * 3.4);
   const falling: Drop[] = [];
   for (let i = drops.length - 1; i >= 0; i--) {
-    const d = drops[i]; d.age += dt;
+    const d = drops[i]; if (advanceAges && !d.skipAgeOnce) d.age += dt; d.skipAgeOnce = false;
     if (!d.settled) {
       d.vy -= 25 * dt; d.x += d.vx * dt; d.y += d.vy * dt; d.z += d.vz * dt;
       d.vx *= damping; d.vz *= damping; d.rotation += dt * d.vx * 0.4;
@@ -320,6 +428,7 @@ function updateDrops(dt: number, collect: boolean) {
     else banked++;
   }
   for (const actor of actors) {
+    if (!alive(actor)) continue;
     const built = assembleReserve(actor.structure);
     if (actor.id === 'player') {
       repairs += built.filter(p => p.mode === 'repair').length;
@@ -329,17 +438,14 @@ function updateDrops(dt: number, collect: boolean) {
   if (repairs + growth + banked > 0) {
     stats.repairs += repairs; stats.growth += growth;
     sound.play('pickup');
-    if (toastDelay <= 0) {
-      ui.toast(`${repairs} repaired · ${growth} added · ${banked} sent to reserve`, growth > 0 ? 'growth' : 'repair');
-      toastDelay = 1.2;
-    }
   }
 }
 function tick(dt: number) {
-  if (phase === 'paused') return;
+  if (phase === 'paused' || phase === 'result') return;
   simTime += dt;
   if (phase === 'collecting' && victory) {
     const player = actors[0];
+    updateDrops(dt, false, false);
     const collected = stepVictoryCollection(victory, drops, player, dt);
     const built = [...collected.attachments.map(a => a.attachment), ...(victory.evolved ? [] : collected.assembled)];
     for (const attachment of built) {
@@ -355,33 +461,66 @@ function tick(dt: number) {
     if (collected.done) showResult(true);
     return;
   }
-  if (phase !== 'playing') { if (phase === 'result') updateDrops(dt, false); return; }
+  if (phase !== 'playing') return;
+  const initialOutcome = playerBattleOutcome(round!);
+  if (initialOutcome !== 'playing') { finish(initialOutcome === 'victory'); return; }
   stats.elapsed += dt; toastDelay -= dt;
+  if (stepRune(rune, dt)) ui.toast('Color rune appeared at the center', 'growth');
   for (const a of actors) { a.cooldown -= dt; a.hurt = Math.max(0, a.hurt - dt); updateBounds(a); }
   const p = actors[0];
-  aim = renderer.pointer(pointerPosition.x, pointerPosition.y, { mesh: actors[1].view.body, x: actors[1].x, z: actors[1].z });
+  aim = pointerAim(pointerPosition.x, pointerPosition.y);
   const mx = THREE.MathUtils.clamp(Number(keys.has('KeyD') || keys.has('ArrowRight')) - Number(keys.has('KeyA') || keys.has('ArrowLeft')) + touchMovement.x, -1, 1);
   const mz = THREE.MathUtils.clamp(Number(keys.has('KeyS') || keys.has('ArrowDown')) - Number(keys.has('KeyW') || keys.has('ArrowUp')) + touchMovement.z, -1, 1);
-  if (dashRequested) { startDash(dash, mx, mz, aim.x - p.x, aim.z - p.z); dashRequested = false; }
+  if (dashRequested && alive(p)) {
+    if (startDash(dash, mx, mz, aim.x - p.x, aim.z - p.z)) p.dashStarts++;
+    dashRequested = false;
+  }
   const dashing = dash.remaining > 0;
-  movePlayer(p, dash, mx, mz, dt);
+  if (alive(p)) {
+    const previous = { x: p.x, z: p.z };
+    movePlayer(p, dash, mx, mz, dt);
+    resolveArenaBuildings(p, buildings, previous);
+  }
   if (dashing && !reducedMotion.matches) burst(p.x, 0.6, p.z, 2, '#7c3aed');
   if (firing) fire(p, aim.x, aim.z);
   bot(dt);
-  const e = actors[1], dx = e.x - p.x, dz = e.z - p.z, distance = Math.hypot(dx, dz), separation = (e.radius + p.radius) * 0.8;
-  if (distance < separation && distance > 0.001) { const overlap = (separation - distance) / 2; p.x -= dx / distance * overlap; p.z -= dz / distance * overlap; e.x += dx / distance * overlap; e.z += dz / distance * overlap; }
-  for (const a of actors) clampToArena(a);
-  for (let i = shots.length - 1; i >= 0; i--) {
-    const s = shots[i], bx = s.x + s.vx * dt, bz = s.z + s.vz * dt;
-    const target = actors.find(a => a !== s.owner)!;
-    const impact = segmentCircleHit(s.x, s.z, bx, bz, target.x, target.z, target.radius + CONFIG.projectileSize / 2);
-    s.life -= dt;
-    if (impact !== null) { s.x += (bx - s.x) * impact; s.z += (bz - s.z) * impact; hit(s, target); s.life = 0; }
-    else { s.x = bx; s.z = bz; }
-    if (Math.abs(s.x) > CONFIG.arenaWidth / 2 || Math.abs(s.z) > CONFIG.arenaDepth / 2) s.life = 0;
-    if (s.life <= 0) { renderer.scene.remove(s.mesh); shots.splice(i, 1); }
-    if (phase !== 'playing') break;
+  const living = actors.filter(alive), prior = new Map(living.map(actor => [actor, { x: actor.x, z: actor.z }]));
+  for (let i = 0; i < living.length; i++) for (let j = i + 1; j < living.length; j++) {
+    const a = living[i], b = living[j], dx = b.x - a.x, dz = b.z - a.z;
+    const distance = Math.hypot(dx, dz), separation = (a.radius + b.radius) * 0.8;
+    if (distance < separation) {
+      const overlap = (separation - distance) / 2, nx = distance > 0.001 ? dx / distance : 1, nz = distance > 0.001 ? dz / distance : 0;
+      a.x -= nx * overlap; a.z -= nz * overlap; b.x += nx * overlap; b.z += nz * overlap;
+    }
   }
+  for (const actor of living) { resolveArenaBuildings(actor, buildings, prior.get(actor)); clampToArena(actor); }
+  const runeCollector = collectRune(rune, living);
+  if (runeCollector) {
+    burst(0, 2, 0, 24, '#c2ccd8'); sound.play('pickup');
+    if (runeCollector.id === 'player') ui.toast('Original colors restored', 'growth');
+  }
+  for (let i = shots.length - 1; i >= 0; i--) {
+    const shot = shots[i], bx = shot.x + shot.vx * dt, bz = shot.z + shot.vz * dt;
+    const impact = firstBattleImpact(shot, bx, bz, actors, buildings,
+      (ownerId, targetId) => !areBattleAllies(round!.number, ownerId, targetId));
+    if (impact) {
+      shot.x += (bx - shot.x) * impact.fraction; shot.z += (bz - shot.z) * impact.fraction; shot.age += dt;
+      if (impact.kind === 'actor') hit(shot, impact.target);
+      else hitBuilding(shot, impact.target);
+      drops.push(...projectileDrops(shot)); disposePieceProjectile(renderer.scene, shot.mesh); shots.splice(i, 1);
+      if (playerBattleOutcome(round!) !== 'playing') {
+        // The result freezes combat, but unprocessed parts still lived this frame.
+        for (let pending = i - 1; pending >= 0; pending--) shots[pending].age += dt;
+        break;
+      }
+    } else {
+      const step = stepPartProjectile(shot, dt, Math.random, (x, z, radius) =>
+        buildings.every(building => segmentBuildingHit(x, z, x, z, building, radius) === null));
+      if (step.landed) { drops.push(...projectileDrops(shot)); disposePieceProjectile(renderer.scene, shot.mesh); shots.splice(i, 1); }
+    }
+  }
+  const outcome = playerBattleOutcome(round!);
+  if (outcome !== 'playing') finish(outcome === 'victory');
   if (phase === 'playing') updateDrops(dt, true);
 }
 function draw(dt: number) {
@@ -397,9 +536,19 @@ function draw(dt: number) {
     if (phase === 'result' && !a.structure.pieces.has(a.structure.coreId)) a.view.ring.visible = false;
     if (index === 0 && phase === 'lobby') a.view.ring.rotation.z = simTime * 0.1;
   });
-  reserveViews.forEach((view, i) => view.sync(actors[i]?.structure.evolution, phase !== 'lobby'));
-  renderer.fitCombat(actors);
-  shots.forEach(s => { s.mesh.position.set(s.x, 3.2, s.z); s.mesh.rotation.set(0.15, simTime * 8, 0.1); });
+  buildings.forEach((building, i) => {
+    const view = buildingViews[i]; view.sync(building.structure);
+    view.root.visible = building.structure.pieces.size > 0;
+    view.root.position.set(building.x, 0, building.z);
+    view.ring.visible = view.core.visible = false;
+  });
+  reserveViews[0].sync(actors[0]?.structure.evolution, phase !== 'lobby');
+  runeView.visible = rune.available && (phase === 'playing' || phase === 'paused');
+  runeView.position.y = 2.6 + Math.sin(rune.elapsed * 2) * .25;
+  runeView.rotation.y = rune.elapsed * .6;
+  renderer.fitCombat([...actors.filter(alive), ...buildings.filter(building => building.structure.pieces.size > 0)]);
+  // Packed groups use the same offsets in flight and when splitting into loot.
+  shots.forEach(s => { s.mesh.position.set(s.x, s.y, s.z); s.mesh.rotation.set(0, s.pieces.length > 1 ? 0 : simTime * 8, 0); });
   if (drops.length > droppedView.instanceMatrix.count) resizeDropView(2 ** Math.ceil(Math.log2(drops.length)));
   let matrixStart = drops.length, matrixEnd = -1, colorStart = drops.length, colorEnd = -1;
   drops.forEach((d, i) => {
@@ -447,21 +596,26 @@ function draw(dt: number) {
       particleView.instanceColor.needsUpdate = true;
     }
   }
-  renderer.aim(aim.x, aim.z, phase === 'playing');
+  renderer.aim(aim.x, aim.z, phase === 'playing' && alive(actors[0]));
   renderer.frame(dt);
 }
 function updateUI() {
-  ui.update({ elapsed: stats.elapsed, playerPieces: actors[0]?.structure.pieces.size ?? 0, enemyPieces: actors[1]?.structure.pieces.size ?? 0, repairs: stats.repairs, growth: stats.growth, shots: stats.shots, hits: stats.hits, muted: sound.muted, damage,
+  const rival = actors.find(actor => actor.id !== 'player' && alive(actor));
+  ui.update({ elapsed: stats.elapsed, playerPieces: actors[0]?.structure.pieces.size ?? 0, enemyPieces: rival?.structure.pieces.size ?? 0, repairs: stats.repairs, growth: stats.growth, shots: stats.shots, hits: stats.hits, muted: sound.muted, shotCount,
     round: round?.number ?? 1,
     playerCoreExposed: actors[0]?.structure.coreExposed ?? false,
-    enemyCoreExposed: actors[1]?.structure.coreExposed ?? false,
+    enemyCoreExposed: rival?.structure.coreExposed ?? false,
     playerCoreThreshold: actors[0] ? coreExposureThreshold(actors[0].structure) : 0,
-    enemyCoreThreshold: actors[1] ? coreExposureThreshold(actors[1].structure) : 0,
+    enemyCoreThreshold: rival ? coreExposureThreshold(rival.structure) : 0,
     dashCooldown: dash.cooldown, dashing: dash.remaining > 0,
-    botStyle: round?.enemyBehavior ?? 'balanced', botDifficulty: round?.enemyDifficulty ?? 'easy', botPanic,
+    botStyle: rival?.bot?.style ?? 'balanced', botDifficulty: rival?.bot?.difficulty ?? 'easy', botPanic: rival?.panic ?? false,
     victoryCollected: victory?.collected ?? 0, victoryTotal: victory?.total ?? 0,
     evolution: actors[0] ? evolutionProgress(actors[0].structure) : null,
-    enemyReserve: actors[1]?.structure.evolution?.reserve.length ?? 0,
+    enemyReserve: rival?.structure.evolution?.reserve.length ?? 0,
+    fighters: actors.map(actor => ({ id: actor.id, name: actor.template.name, pieces: actor.structure.pieces.size,
+      reserve: actor.structure.evolution?.reserve.length ?? 0, alive: alive(actor), exposed: actor.structure.coreExposed,
+      style: actor.bot?.style ?? null })),
+    aliveCount: actors.filter(alive).length, spectating: false, placement: playerPlacement,
   });
 }
 
@@ -469,10 +623,10 @@ canvas.tabIndex = 0;
 canvas.addEventListener('contextmenu', e => e.preventDefault());
 window.addEventListener('pointermove', e => { pointerPosition = { x: e.clientX, y: e.clientY }; });
 canvas.addEventListener('pointerdown', e => {
-  if (e.button !== 0 || phase !== 'playing') return;
+  if (e.button !== 0 || phase !== 'playing' || !alive(actors[0])) return;
   firing = true; sound.unlock();
   pointerPosition = { x: e.clientX, y: e.clientY };
-  aim = renderer.pointer(e.clientX, e.clientY, { mesh: actors[1].view.body, x: actors[1].x, z: actors[1].z });
+  aim = pointerAim(e.clientX, e.clientY);
   fire(actors[0], aim.x, aim.z);
 });
 window.addEventListener('pointerup', () => { firing = false; });
@@ -503,6 +657,27 @@ function frame(now: number) {
 }
 
 // Readable diagnostics for prototype QA; contains no remote calls or player data.
-Object.defineProperty(window, '__arenaSnapshot', { get: () => ({ phase, round: round?.number, elapsed: stats.elapsed, damage, player: actors[0] && { x: actors[0].x, z: actors[0].z, pieces: actors[0].structure.pieces.size, vacancies: actors[0].structure.vacancies.length, evolution: evolutionProgress(actors[0].structure) }, enemy: actors[1] && { x: actors[1].x, z: actors[1].z, pieces: actors[1].structure.pieces.size, reserve: actors[1].structure.evolution?.reserve.length ?? 0 }, drops: drops.length, projectiles: shots.length, input: { touchMovement: { ...touchMovement }, firing }, stats: { ...stats }, drawCalls: renderer.renderer.info.render.calls }) });
+Object.defineProperty(window, '__arenaSnapshot', { get: () => ({
+  phase, round: round?.number, elapsed: stats.elapsed, shotCount, rune: { ...rune },
+  player: actors[0] && { x: actors[0].x, z: actors[0].z, alive: alive(actors[0]), pieces: actors[0].structure.pieces.size,
+    vacancies: actors[0].structure.vacancies.length, evolution: evolutionProgress(actors[0].structure) },
+  enemy: actors[1] && { x: actors[1].x, z: actors[1].z, pieces: actors[1].structure.pieces.size,
+    reserve: actors[1].structure.evolution?.reserve.length ?? 0 },
+  fighters: actors.map(actor => ({ id: actor.id, name: actor.template.name, x: actor.x, z: actor.z, radius: actor.radius,
+    round: round?.number, teamId: battleTeamId(round?.number ?? 1, actor.id), role: actor.squadRole,
+    desiredShotCount: actor.desiredShotCount, lastShotCount: actor.lastShotCount, shotCount: actor.lastShotCount,
+    shotsFired: actor.shotsFired, dashStarts: actor.dashStarts, dash: { ...(actor.id === 'player' ? dash : actor.dash!) },
+    alive: alive(actor), pieces: actor.structure.pieces.size, reserve: actor.structure.evolution?.reserve.length ?? 0,
+    coreExposed: actor.structure.coreExposed, style: actor.bot?.style, intent: actor.bot?.battle?.intent,
+    targetId: actor.bot?.battle?.targetId, cooldown: actor.cooldown })),
+  aliveCount: actors.filter(alive).length, placement: playerPlacement,
+  winner: round && battleWinner(round)?.id, outcome: round && playerBattleOutcome(round),
+  buildings: buildings.map(building => ({ id: building.id, template: building.template, x: building.x, z: building.z,
+    pieces: building.structure.pieces.size, revision: building.structure.revision })),
+  mass: actors.reduce((n, actor) => n + actor.structure.pieces.size + (actor.structure.evolution?.reserve.length ?? 0), 0)
+    + buildings.reduce((n, building) => n + building.structure.pieces.size, 0) + drops.length + shots.reduce((n, shot) => n + shot.pieces.length, 0),
+  drops: drops.length, projectiles: shots.length, events: [...combatEvents],
+  input: { touchMovement: { ...touchMovement }, firing }, stats: { ...stats }, drawCalls: renderer.renderer.info.render.calls,
+}) });
 showPreview();
 requestAnimationFrame(frame);

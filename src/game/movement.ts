@@ -31,19 +31,23 @@ export function moveBody(body: MovingBody, x: number, z: number, speed: number, 
 }
 
 /** Called only during active combat: pause freezes the dash and its cooldown. */
-export function movePlayer(body: MovingBody, dash: DashState, x: number, z: number, dt: number): void {
+export function moveDashingBody(body: MovingBody, dash: DashState, x: number, z: number, speed: number, dt: number): void {
   dash.cooldown = Math.max(0, dash.cooldown - dt);
   const activeTime = Math.min(dt, dash.remaining);
   if (activeTime > 0) {
-    body.vx = dash.x * CONFIG.movementSpeed * CONFIG.dashSpeedMultiplier;
-    body.vz = dash.z * CONFIG.movementSpeed * CONFIG.dashSpeedMultiplier;
+    body.vx = dash.x * speed * CONFIG.dashSpeedMultiplier;
+    body.vz = dash.z * speed * CONFIG.dashSpeedMultiplier;
     body.x += body.vx * activeTime; body.z += body.vz * activeTime;
     dash.remaining = Math.max(0, dash.remaining - activeTime);
     clampToArena(body);
     if (dash.remaining === 0) {
-      body.vx = dash.x * CONFIG.movementSpeed;
-      body.vz = dash.z * CONFIG.movementSpeed;
+      body.vx = dash.x * speed;
+      body.vz = dash.z * speed;
     }
   }
-  if (dt > activeTime) moveBody(body, x, z, CONFIG.movementSpeed, dt - activeTime);
+  if (dt > activeTime) moveBody(body, x, z, speed, dt - activeTime);
+}
+
+export function movePlayer(body: MovingBody, dash: DashState, x: number, z: number, dt: number): void {
+  moveDashingBody(body, dash, x, z, CONFIG.movementSpeed, dt);
 }

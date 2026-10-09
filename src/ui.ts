@@ -3,7 +3,7 @@ import { EVOLUTIONS, EVOLUTION_THRESHOLD, type evolutionProgress } from './game/
 import { CONFIG } from './game/config';
 import { characterPortrait as portrait } from './assets/catalog';
 import { assetUrl } from './assets/url';
-import { BOT_LABELS, BOT_DIFFICULTIES, type BotStyle, type BotDifficulty } from './game/bots';
+import type { BotStyle, BotDifficulty } from './game/bots';
 
 type Screen = 'lobby' | 'playing' | 'collecting' | 'paused' | 'result';
 type Callbacks = {
@@ -14,7 +14,8 @@ type Callbacks = {
   onPause: () => void;
   onMute: () => void;
   onSelect: (templateId: string) => void;
-  onDamageChange: (value: number) => void;
+  onShotCountChange: (value: number) => void;
+  onDash?: () => void;
   onEvolution: (id: EvolutionId) => void;
   onMove: (x: number, z: number) => void;
 };
@@ -27,7 +28,7 @@ type UpdateData = {
   shots: number;
   hits: number;
   muted: boolean;
-  damage: number;
+  shotCount: number;
   round: number;
   playerCoreExposed: boolean;
   enemyCoreExposed: boolean;
@@ -42,8 +43,12 @@ type UpdateData = {
   victoryTotal: number;
   evolution: ReturnType<typeof evolutionProgress>;
   enemyReserve: number;
+  fighters: { id: string; name: string; pieces: number; reserve: number; alive: boolean; exposed: boolean; style: BotStyle | null }[];
+  aliveCount: number;
+  spectating?: boolean;
+  placement: number;
 };
-type ResultStats = { elapsed: number; repairs: number; growth: number; hits: number; direct: number; cascade: number; round: number; carriedPieces: number; basePieces: number; victoryCollected: number; victorySkipped: number; reserve: number; evolutionName: string; evolved: boolean };
+type ResultStats = { elapsed: number; repairs: number; growth: number; hits: number; direct: number; cascade: number; round: number; carriedPieces: number; basePieces: number; victoryCollected: number; victorySkipped: number; reserve: number; evolutionName: string; evolved: boolean; placement: number; winner?: string };
 
 const escape = (value: string) => value.replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]!));
 const time = (seconds: number) => `${Math.floor(seconds / 60).toString().padStart(2, '0')}:${Math.floor(seconds % 60).toString().padStart(2, '0')}`;
@@ -63,17 +68,12 @@ const icon = (name: 'arrow' | 'sound' | 'muted' | 'pause' | 'play' | 'reset' | '
 const ROSTER_PAGE_SIZE = 6;
 const pieceWord = (count: number) => count === 1 ? 'piece' : 'pieces';
 
-function reservePanel(side: 'player' | 'enemy') {
-  const player = side === 'player';
-  return `<aside class="reserve-panel reserve-panel--${side}" data-section="hud" aria-label="${player ? 'Your backpack' : 'Opponent backpack'}" hidden>
-    <header class="reserve-panel__header"><div class="reserve-panel__heading"><span class="reserve-panel__icon">${icon('backpack')}</span><div><h2>${player ? 'Backpack' : 'Rival stock'}</h2><span>${player ? 'YOUR SPARE PARTS' : 'OPPONENT’S SPARES'}</span></div></div><div class="reserve-panel__count"><strong ${player ? 'data-reserve' : 'data-enemy-reserve'}>0</strong><span data-reserve-unit="${side}">pieces saved</span><span class="reserve-panel__auto" title="Spare parts are used automatically">AUTO</span></div></header>
-    <div class="reserve-panel__stage" data-reserve-stage="${side}" aria-hidden="true"><div class="reserve-panel__empty" data-reserve-empty="${side}"><strong>Ready for loot</strong><span>Spare parts collect here</span></div></div>
-    <footer class="reserve-panel__footer"><span class="reserve-panel__dot" aria-hidden="true"></span><span data-reserve-note="${side}">${player ? 'Saved for repairs & growth' : 'Saved for the next build'}</span></footer>
+function reservePanel() {
+  return `<aside class="reserve-panel reserve-panel--player" aria-label="Your backpack">
+    <header class="reserve-panel__header"><div class="reserve-panel__heading"><span class="reserve-panel__icon">${icon('backpack')}</span><div><h2>Backpack</h2><span>YOUR SPARE PARTS</span></div></div><div class="reserve-panel__count"><strong data-reserve>0</strong><span data-reserve-unit="player">pieces saved</span></div></header>
+    <div class="reserve-panel__stage" data-reserve-stage="player" aria-hidden="true"><div class="reserve-panel__empty" data-reserve-empty="player"><strong>Ready for loot</strong><span>Spare parts collect here</span></div></div>
+    <footer class="reserve-panel__footer"><span class="reserve-panel__dot" aria-hidden="true"></span><span data-reserve-note="player">Saved for repairs & growth</span></footer>
   </aside>`;
-}
-
-function tuning(): string {
-  return `<details class="tuning"><summary>Match Settings<span aria-hidden="true">+</span></summary><div class="tuning__body"><label>Pieces removed per hit <output data-damage-output>${CONFIG.projectilePower}</output><input data-damage type="range" min="1" max="20" step="1" value="${CONFIG.projectilePower}" aria-label="Pieces removed per hit" /></label><p>Applies to both fighters. Cascades can knock off extra pieces. Reclaim your own pieces after ${CONFIG.ownPickupDelay} seconds.</p></div></details>`;
 }
 
 export class GameUI {
@@ -83,7 +83,8 @@ export class GameUI {
   private selected: string;
   private rosterPage = 0;
   private screen: Screen = 'lobby';
-  private damage: number = CONFIG.projectilePower;
+  private shotCount = 1;
+  private dashAvailable = true;
   private joystickPointer: number | null = null;
 
   constructor(private readonly root: HTMLElement, templates: CharacterTemplate[], callbacks: Callbacks) {
@@ -97,7 +98,7 @@ export class GameUI {
       <header class="topbar">
         <div class="brand" aria-label="Punk Brick Arena"><span class="brand__mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span><span>Punk Brick<span class="brand__second">Arena</span></span></div>
         <nav class="site-nav" aria-label="Page navigation"><a href="#play">Play</a><a href="#how-to-play">How to Play</a><a href="#about">About</a></nav>
-        <span class="mode-label"><span class="live-dot"></span>ONE ON ONE · VS. BOT</span>
+        <span class="mode-label"><span class="live-dot"></span>4 FIGHTERS · LAST CORE STANDING</span>
         <div class="topbar__actions"><span class="build-label">FAN MADE <span>01</span></span><button class="icon-button" data-action="mute" aria-label="Mute sound" title="Sound · M">${icon('sound')}</button><button class="icon-button" data-action="pause" aria-label="Pause" title="Pause · P / Esc" hidden>${icon('pause')}</button></div>
       </header>
 
@@ -106,7 +107,7 @@ export class GameUI {
           <div class="hero-copy">
             <p class="section-kicker"><span class="pixel-dot" aria-hidden="true"></span> A COMMUNITY PLAYGROUND</p>
             <h1>Pixels.<br>Bricks.<br><em>Play.</em></h1>
-            <p class="hero-description">Familiar punks. A whole new form. Battle a bot, collect the pieces, and build your next self.</p>
+            <p class="hero-description">Four punks. One survivor. Fire your own bricks, tear down cover, and rebuild yourself from the battlefield.</p>
             <div class="roster-label"><span>01 / PICK YOUR PUNK</span><span>${templates.length} PUNKS</span></div>
             <div class="character-roster" role="group" aria-label="Characters">${templates.map((template, index) => `
               <button class="character-card${index === 0 ? ' is-selected' : ''}" data-character="${escape(template.id)}" aria-pressed="${index === 0}"${index >= ROSTER_PAGE_SIZE ? ' hidden' : ''}>
@@ -125,10 +126,9 @@ export class GameUI {
               <p data-evolution-description>${escape(EVOLUTIONS[0].description)}</p>
               <small>Head → Body Form → Final Form. Spare parts wait in your reserve.</small>
             </div>
-            <button class="primary-button play-button" data-action="start"><span>Play vs. Bot</span>${icon('arrow')}</button>
+            <button class="primary-button play-button" data-action="start"><span>Play Battle Royale</span>${icon('arrow')}</button>
             <p class="play-caption">Free to play · In your browser · Keyboard, mouse, or touch</p>
             <p class="touch-note">In a match, use the left joystick to move and touch the arena to aim and fire.</p>
-            ${tuning()}
           </div>
           <div class="punk-preview" aria-label="Selected punk preview">
             <div class="preview-toolbar"><span><span class="pixel-dot" aria-hidden="true"></span> BRICK VIEW</span><span>LIVE 3D</span></div>
@@ -143,9 +143,9 @@ export class GameUI {
         <section class="how-section" id="how-to-play" aria-labelledby="how-title">
           <div class="section-heading"><p class="section-kicker">02 / HOW TO PLAY</p><h2 id="how-title">Easy to learn.<br>Hard to stay in one piece.</h2></div>
           <div class="rules-grid">
-            <article><span class="step-number">01</span><h3>Break them apart</h3><p>Move, aim, and shoot. Press Space to dash. Face an easy Balanced bot first, then a medium one. From round 3, face any of the four bot styles at full strength.</p><div class="rule-controls"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><span>+ mouse</span></div></article>
-            <article><span class="step-number">02</span><h3>Build your punk</h3><p>Choose an evolution. Loot repairs missing pieces, then builds its body from the head down. Parts that do not fit wait in the side reserve and carry into the next round. Reclaim your own pieces after ${CONFIG.ownPickupDelay} seconds.</p><span class="rule-tag">REPAIR → BUILD → SAVE SPARES</span></article>
-            <article><span class="step-number">03</span><h3>Protect your Core</h3><p>Lose ${Math.round(CONFIG.coreProtectionLoss * 100)}% of your starting pieces and your Core stays exposed for the rest of the round. Destroy the enemy Core to win, then collect the remaining debris.</p><span class="rule-tag">WIN → COLLECT → NEXT ROUND</span></article>
+            <article><span class="step-number">01</span><h3>Every shot costs a brick</h3><p>Move, aim, and shoot. Your backpack supplies ammo first, then safe outer pieces of your body. Your Core is never ammunition. Fired bricks land as loot after a five-second pickup lock.</p><div class="rule-controls"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><span>+ mouse</span></div></article>
+            <article><span class="step-number">02</span><h3>Break cover. Rebuild.</h3><p>Walls, towers, and ruins stop movement and shots. Break them for parts. Loot repairs missing pieces, builds your chosen evolution, or becomes spare ammunition. Press Space to dash around cover.</p><span class="rule-tag">HARVEST → REPAIR → BUILD → FIRE</span></article>
+            <article><span class="step-number">03</span><h3>Be the last Core standing</h3><p>You and three bots start in separate corners. Everyone fights everyone. Lose ${Math.round(CONFIG.coreProtectionLoss * 100)}% of your starting build to expose your Core. The last surviving Core wins and carries its build into the next round. If your Core breaks, your run ends immediately; restart or choose a character.</p><span class="rule-tag">4 FIGHTERS → 1 SURVIVOR</span></article>
           </div>
           <div class="keyboard-guide"><span><kbd>Space</kbd> Dash · ${CONFIG.dashCooldown} s</span><span><kbd>P</kbd> / <kbd>Esc</kbd> Pause</span><span><kbd>R</kbd> Start Over</span><span><kbd>M</kbd> Sound</span><span>Win to carry your build into the next round.</span></div>
         </section>
@@ -169,34 +169,36 @@ export class GameUI {
         <footer class="site-footer"><span>Punk Brick Arena <span class="footer-dot">■</span> FAN MADE, FOR FUN.</span><a href="https://x.com/azaticus" target="_blank" rel="noopener noreferrer">Twitter / X · @azaticus ↗</a><a href="#play">Back to Play ↑</a></footer>
       </div>
 
-      <section class="match-hud" data-section="hud" aria-label="Match status" hidden>
-        <div class="fighter fighter--you"><span class="fighter__marker"></span><div><span class="fighter__label">YOUR BUILD</span><strong><span data-player-pieces>0</span><small data-player-piece-label>pieces</small></strong><span class="core-status" data-player-core>Core protected</span></div><span class="fighter__core" title="Protect your Core"><span class="core-diamond"></span></span></div>
-        <div class="match-clock" aria-label="Round and match time"><span class="match-clock__round">ROUND <b data-round>1</b></span><strong data-clock>00:00</strong></div>
-        <div class="fighter fighter--enemy"><span class="fighter__marker"></span><div><span class="fighter__label" data-bot-style>OPPONENT · BOT</span><strong><span data-enemy-pieces>0</span><small data-enemy-piece-label>pieces</small></strong><span class="core-status" data-enemy-core>Core protected</span></div></div>
-      </section>
+      <div class="player-sidebar" data-section="hud" hidden>
+        <section class="match-hud" aria-label="Your build and evolution">
+          <div class="fighter fighter--you"><div class="fighter__body"><div class="fighter__heading"><span class="fighter__label">YOUR BUILD</span><span class="core-status" data-player-core>Core protected</span></div><strong><span data-player-pieces>0</span><small data-player-piece-label>pieces</small></strong></div><span class="fighter__core" title="Protect your Core"><span class="core-diamond"></span></span></div>
+          <div class="collection-hud"><div><span class="collection-hud__title" data-evolution-title>Your evolution</span><span class="evolution-status" data-evolution-status></span><progress data-evolution-progress max="1" value="0" aria-label="Body assembly"></progress><div class="collection-hud__values"><span class="build-stat"><b data-repairs>0</b><span>Repaired</span></span><span class="build-stat"><b data-growth>0</b><span>Added</span></span></div></div></div>
+        </section>
+        ${reservePanel()}
+      </div>
 
-      ${reservePanel('player')}${reservePanel('enemy')}
-      <div class="collection-hud" data-section="hud" hidden><span class="collection-hud__icon" aria-hidden="true">+</span><div><span class="collection-hud__title" data-evolution-title>YOUR EVOLUTION</span><span class="collection-hud__values"><b data-repairs>0</b> repaired <span>·</span> <b data-growth>0</b> added</span><span class="evolution-status" data-evolution-status></span><progress data-evolution-progress max="1" value="0" aria-label="Body assembly"></progress></div></div>
-      <div class="dash-hud" data-section="hud" hidden><kbd>SPACE</kbd><div><strong>DASH</strong><span data-dash-status>Ready</span></div><progress data-dash-progress max="1" value="1" aria-label="Dash readiness"></progress></div>
+      <aside class="action-panel" data-section="hud" aria-label="Movement and shooting" hidden>
+        <button type="button" class="dash-hud" data-action="dash" aria-label="Dash"><div class="dash-hud__heading"><span class="dash-hud__label">MOVEMENT</span><kbd>SPACE</kbd></div><div class="dash-hud__body"><strong>DASH</strong><span data-dash-status>Ready</span></div><p class="dash-hud__description">Burst to dodge.</p><progress data-dash-progress max="1" value="1" aria-label="Dash readiness"></progress></button>
+        <div class="shot-control"><label for="shot-count"><span class="shot-control__heading"><strong>Shot size</strong><span>PARTS / SHOT</span></span><output for="shot-count" data-shot-count-output>1</output></label><input id="shot-count" data-shot-count type="range" min="1" max="20" step="1" value="1" aria-label="Parts per shot" aria-valuetext="1 piece per shot" title="Each fired part deals one direct damage. Backpack parts fire first." /><div class="shot-control__limits" aria-hidden="true"><span>1 part</span><span>20 parts</span></div><p>Backpack parts fire first.</p></div>
+      </aside>
       <div class="victory-collection" data-section="collecting" role="status" hidden><span class="section-kicker">VICTORY!</span><strong>Assembling your next form</strong><span><b data-victory-collected>0</b> / <b data-victory-total>0</b> <span data-victory-piece-label>pieces</span></span><progress data-victory-progress max="1" value="0" aria-label="Victory collection"></progress><small>Loot + reserve. Repair, build, save the rest.</small></div>
 
       <div class="mobile-joystick" data-section="hud" role="group" aria-label="Movement joystick" hidden>
         <div class="mobile-joystick__base" data-joystick><span class="mobile-joystick__knob" data-joystick-knob></span></div>
         <span class="mobile-joystick__label">MOVE</span>
       </div>
-      <footer class="controls-bar" data-section="hud" hidden><div class="control-hint"><span class="key-group"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span><span>move</span></div><span class="control-divider"></span><div class="control-hint"><span class="mouse-icon" aria-hidden="true"></span><span>aim & fire</span></div><div class="control-hint control-hint--extra"><kbd>P</kbd><span>pause</span><kbd>R</kbd><span>restart</span></div><span class="controls-bar__note">MOVE NEAR PIECES TO COLLECT THEM</span></footer>
 
-      <div class="modal-backdrop" data-section="paused" hidden><section class="modal pause-modal" role="dialog" aria-modal="true" aria-labelledby="pause-title"><div class="modal-brick" aria-hidden="true">Ⅱ</div><span class="eyebrow">TAKE YOUR TIME</span><h2 id="pause-title">Take a<br>build break.</h2><p>Your build can wait. So can your opponent.</p><button class="primary-button" data-action="resume"><span>Resume</span>${icon('play')}</button><button class="secondary-button" data-action="restart">${icon('reset')}Start Over</button><button class="secondary-button" data-action="lobby">Choose Character</button>${tuning()}</section></div>
+      <div class="modal-backdrop" data-section="paused" hidden><section class="modal pause-modal" role="dialog" aria-modal="true" aria-labelledby="pause-title"><div class="modal-brick" aria-hidden="true">Ⅱ</div><span class="eyebrow">TAKE YOUR TIME</span><h2 id="pause-title">Take a<br>build break.</h2><p>Your build can wait. So can your opponents.</p><button class="primary-button" data-action="resume"><span>Resume</span>${icon('play')}</button><button class="secondary-button" data-action="restart">${icon('reset')}Start Over</button><button class="secondary-button" data-action="lobby">Choose Character</button></section></div>
 
       <div class="modal-backdrop" data-section="result" hidden><section class="modal result-modal" role="dialog" aria-modal="true" aria-labelledby="result-title">
         <div class="result-badge" data-result-badge>VICTORY</div><h2 id="result-title">You Win!</h2>
-        <p data-result-description>Enemy Core destroyed. Your build keeps growing.</p>
+        <p data-result-description>Last Core standing. Your build keeps growing.</p>
         <div class="result-survivor" data-result-survivor><span>YOUR BUILD</span><strong><b data-carried-pieces>0</b> <small data-carried-piece-label>pieces</small></strong><span data-size-ratio></span></div>
         <div class="result-stats"><div><strong data-result-repairs>0</strong><span>REPAIRED</span></div><div><strong data-result-growth>0</strong><span>ADDED</span></div><div><strong data-result-direct>0</strong><span title="Enemy pieces removed by your shots">SHOT OFF</span></div><div><strong data-result-cascade>0</strong><span title="Enemy pieces detached in cascades">BROKE LOOSE</span></div></div>
         <div class="result-caption"><span>TIME <b data-result-time>00:00</b></span><span>HITS <b data-result-hits>0</b></span></div>
         <p class="victory-bonus" data-victory-bonus></p>
         <button class="primary-button round-action" data-action="next"><span><strong>Next Round</strong><small data-next-round-note>Keep your build · next round</small></span>${icon('arrow')}</button>
-        <button class="secondary-button round-action round-action--new" data-action="restart"><span><strong>Start Over</strong><small>Back to base form · round 1</small></span>${icon('reset')}</button>
+        <button class="secondary-button round-action round-action--new" data-action="restart"><span><strong data-restart-title>Start Over</strong><small data-restart-note>Back to base form · round 1</small></span>${icon('reset')}</button>
         <button class="secondary-button" data-action="lobby">Choose Character</button>
         <p class="result-footnote" data-result-footnote>Only attached pieces carry into the next round.</p>
       </section></div>
@@ -205,6 +207,11 @@ export class GameUI {
     `;
     root.append(this.element);
     this.setupJoystick();
+    const shotControl = this.element.querySelector<HTMLElement>('.shot-control')!;
+    // Keep native range dragging and arrow keys, while isolating gameplay input.
+    shotControl.addEventListener('pointerdown', event => event.stopPropagation());
+    shotControl.addEventListener('pointermove', event => event.stopPropagation());
+    shotControl.addEventListener('keydown', event => { if (event.key !== 'Tab') event.stopPropagation(); });
     this.element.addEventListener('click', (event) => {
       const target = (event.target as Element).closest<HTMLButtonElement>('button');
       if (!target) return;
@@ -233,14 +240,16 @@ export class GameUI {
         case 'pause':
         case 'resume': this.callbacks.onPause(); break;
         case 'mute': this.callbacks.onMute(); break;
+        case 'dash': if (this.screen === 'playing' && this.dashAvailable) this.callbacks.onDash?.(); break;
       }
     });
     this.element.addEventListener('input', (event) => {
       const target = event.target as HTMLInputElement;
-      if (!target.matches('[data-damage]')) return;
-      this.damage = Math.max(1, Math.min(20, Math.round(Number(target.value))));
-      this.syncDamage();
-      this.callbacks.onDamageChange(this.damage);
+      if (!target.matches('[data-shot-count]')) return;
+      const value = Number(target.value);
+      this.shotCount = Number.isFinite(value) ? Math.max(1, Math.min(20, Math.round(value))) : 1;
+      this.syncShotCount();
+      this.callbacks.onShotCountChange(this.shotCount);
     });
     this.element.addEventListener('keydown', (event) => {
       if (event.key !== 'Tab' || (this.screen !== 'paused' && this.screen !== 'result')) return;
@@ -346,6 +355,7 @@ export class GameUI {
     canvas.tabIndex = screen === 'lobby' ? -1 : 0;
     canvas.setAttribute('aria-label', screen === 'lobby' ? '3D preview of your selected punk' : 'Game arena: use WASD, arrow keys, or the touch joystick to move; aim and fire with the mouse or by touching the arena; Space to dash');
     if (screen !== 'playing') this.resetJoystick();
+    this.syncActionState();
     if (changed && screen === 'lobby') this.element.scrollTop = 0;
     this.element.querySelector<HTMLElement>('.topbar')!.inert = screen === 'paused' || screen === 'result';
     this.element.querySelectorAll<HTMLElement>('[data-section]').forEach((section) => {
@@ -364,36 +374,31 @@ export class GameUI {
     }
   }
 
-  reserveStage(side: 'player' | 'enemy'): HTMLElement {
-    return this.element.querySelector<HTMLElement>(`[data-reserve-stage="${side}"]`)!;
+  reserveStage(side: 'player'): HTMLElement;
+  reserveStage(side: 'enemy'): null;
+  reserveStage(side: 'player' | 'enemy'): HTMLElement | null {
+    return side === 'player' ? this.element.querySelector<HTMLElement>('[data-reserve-stage="player"]')! : null;
   }
 
   update(data: UpdateData): void {
     this.setText('[data-player-pieces]', data.playerPieces);
-    this.setText('[data-enemy-pieces]', data.enemyPieces);
     this.setText('[data-player-piece-label]', pieceWord(data.playerPieces));
-    this.setText('[data-enemy-piece-label]', pieceWord(data.enemyPieces));
     this.setText('[data-repairs]', data.repairs);
     this.setText('[data-growth]', data.growth);
     const e = data.evolution;
-    this.setText('[data-evolution-title]', e ? `${e.name.toUpperCase()} · ${e.stage === 2 ? 'BODY FORM' : 'FINAL FORM'}` : 'YOUR EVOLUTION');
-    this.setText('[data-evolution-status]', e ? `${e.built} / ${e.target} body pieces · ${Math.floor(e.fraction * 100)}%` : '');
+    this.setText('[data-evolution-title]', e?.name ?? 'Your evolution');
+    this.setText('[data-evolution-status]', e ? `${e.stage === 2 ? 'Body' : 'Final'} form · ${Math.floor(e.fraction * 100)}% built` : '');
     const progress = this.element.querySelector<HTMLProgressElement>('[data-evolution-progress]')!;
     progress.value = e?.fraction ?? 0;
+    progress.setAttribute('aria-label', e ? `Body assembly: ${e.built} of ${e.target} pieces, ${Math.floor(e.fraction * 100)} percent` : 'Body assembly');
     progress.title = e?.stage === 2 ? `Complete ${EVOLUTION_THRESHOLD * 100}% of Body Form, then win to unlock Final Form` : 'Build and repair Final Form';
     this.setText('[data-reserve]', e?.reserve ?? 0);
-    this.setText('[data-enemy-reserve]', data.enemyReserve);
-    for (const [side, count] of [['player', e?.reserve ?? 0], ['enemy', data.enemyReserve]] as const) {
-      this.setText(`[data-reserve-unit="${side}"]`, `${pieceWord(count)} saved`);
-      this.element.querySelector<HTMLElement>(`[data-reserve-empty="${side}"]`)!.hidden = count > 0;
-      this.setText(`[data-reserve-note="${side}"]`, count > 240 ? `Showing 240 of ${count} saved pieces` : side === 'player' ? 'Saved for repairs & growth' : 'Saved for the next build');
-    }
-    this.setText('[data-clock]', time(data.elapsed));
-    this.setText('[data-round]', data.round);
-    const difficultyLabel = data.botDifficulty === 'normal' ? '' : ` · ${BOT_DIFFICULTIES[data.botDifficulty].name.toUpperCase()}`;
-    this.setText('[data-bot-style]', `${BOT_LABELS[data.botStyle].name.toUpperCase()}${difficultyLabel}${data.botPanic ? ' · RAPID FIRE' : ''}`);
-    this.element.querySelector<HTMLElement>('[data-bot-style]')!.title = `${BOT_LABELS[data.botStyle].description} ${BOT_DIFFICULTIES[data.botDifficulty].name}.`;
-    this.element.querySelector<HTMLElement>('[data-bot-style]')!.classList.toggle('is-panic', data.botPanic);
+    const reserveCount = e?.reserve ?? 0;
+    this.setText('[data-reserve-unit="player"]', `${pieceWord(reserveCount)} saved`);
+    this.element.querySelector<HTMLElement>('[data-reserve-empty="player"]')!.hidden = reserveCount > 0;
+    this.setText('[data-reserve-note="player"]', reserveCount > 240 ? `Showing 240 of ${reserveCount} saved pieces` : 'Saved for repairs & growth');
+    this.dashAvailable = data.dashCooldown <= 0 && !data.dashing;
+    this.syncActionState();
     this.setText('[data-dash-status]', data.dashing ? 'Dashing!' : data.dashCooldown > 0 ? `${data.dashCooldown.toFixed(1)} s` : 'Ready');
     this.element.querySelector<HTMLProgressElement>('[data-dash-progress]')!.value = 1 - data.dashCooldown / CONFIG.dashCooldown;
     this.element.querySelector<HTMLElement>('.dash-hud')!.classList.toggle('is-ready', data.dashCooldown <= 0);
@@ -403,25 +408,26 @@ export class GameUI {
     this.element.querySelector<HTMLProgressElement>('[data-victory-progress]')!.value = data.victoryTotal ? data.victoryCollected / data.victoryTotal : 1;
     for (const [selector, exposed, count, threshold] of [
       ['[data-player-core]', data.playerCoreExposed, data.playerPieces, data.playerCoreThreshold],
-      ['[data-enemy-core]', data.enemyCoreExposed, data.enemyPieces, data.enemyCoreThreshold],
     ] as const) {
-      const status = this.element.querySelector<HTMLElement>(selector)!;
+      const status = this.element.querySelector<HTMLElement>(selector);
+      if (!status) continue;
       this.setText(selector, count === 0 ? 'Core destroyed' : exposed ? 'Core exposed!' : 'Core protected');
       status.classList.toggle('is-exposed', exposed);
       status.title = exposed ? 'This Core stays exposed for the rest of this round' : `Core protection ends at ${threshold} ${pieceWord(threshold)} or fewer`;
     }
-    if (this.damage !== data.damage) {
-      this.damage = data.damage;
-      this.syncDamage();
+    const shotCount = Number.isFinite(data.shotCount) ? Math.max(1, Math.min(20, Math.round(data.shotCount))) : 1;
+    if (this.shotCount !== shotCount) {
+      this.shotCount = shotCount;
+      this.syncShotCount();
     }
     this.setMuted(data.muted);
   }
 
   showResult(won: boolean, stats: ResultStats): void {
     this.element.classList.toggle('is-win', won);
-    this.setText('[data-result-badge]', `ROUND ${stats.round} · ${won ? 'VICTORY' : 'DEFEAT'}`);
-    this.setText('#result-title', won ? 'You Win!' : 'Ready to rebuild?');
-    this.setText('[data-result-description]', won ? 'Enemy Core destroyed. Loot collected. Your build is ready for the next round.' : 'Your Core was destroyed. Start a new run with your base build.');
+    this.setText('[data-result-badge]', won ? `ROUND ${stats.round} · VICTORY` : 'DEFEAT');
+    this.setText('#result-title', won ? 'You Win!' : 'You Lost');
+    this.setText('[data-result-description]', won ? 'Last Core standing. Loot collected. Your build is ready for the next round.' : 'Your Core was destroyed. Restart with your base build or choose a character.');
     this.element.querySelector<HTMLElement>('[data-victory-bonus]')!.hidden = !won;
     this.setText('[data-victory-bonus]', `Victory loot: +${stats.victoryCollected} ${pieceWord(stats.victoryCollected)}${stats.victorySkipped ? ` · ${stats.victorySkipped} left behind` : ''}`);
     this.element.querySelector<HTMLElement>('[data-result-survivor]')!.hidden = !won;
@@ -435,7 +441,9 @@ export class GameUI {
     const restart = this.element.querySelector<HTMLButtonElement>('[data-section="result"] [data-action="restart"]')!;
     restart.classList.toggle('primary-button', !won);
     restart.classList.toggle('secondary-button', won);
-    this.setText('[data-result-footnote]', won ? 'Your build, damage, and reserve carry over. The next opponent starts with a base head.' : 'Start Over resets your body and reserve.');
+    this.setText('[data-restart-title]', won ? 'Start Over' : 'Restart');
+    this.setText('[data-restart-note]', 'Back to base form · round 1');
+    this.setText('[data-result-footnote]', won ? 'Your build and reserve carry over. Three fresh opponents and a new arena await.' : 'A new run starts with your selected head and an empty backpack.');
     this.setText('[data-result-repairs]', stats.repairs);
     this.setText('[data-result-growth]', stats.growth);
     this.setText('[data-result-direct]', stats.direct);
@@ -468,9 +476,19 @@ export class GameUI {
     button.setAttribute('aria-pressed', String(muted));
   }
 
-  private syncDamage(): void {
-    this.element.querySelectorAll<HTMLInputElement>('[data-damage]').forEach((input) => { input.value = String(this.damage); });
-    this.element.querySelectorAll<HTMLOutputElement>('[data-damage-output]').forEach((output) => { output.value = String(this.damage); });
+  private syncShotCount(): void {
+    const input = this.element.querySelector<HTMLInputElement>('[data-shot-count]')!;
+    input.value = String(this.shotCount);
+    input.style.setProperty('--shot-fill', `${(this.shotCount - 1) / 19 * 100}%`);
+    input.setAttribute('aria-valuetext', `${this.shotCount} ${pieceWord(this.shotCount)} per shot`);
+    this.element.querySelector<HTMLOutputElement>('[data-shot-count-output]')!.value = String(this.shotCount);
+  }
+
+  private syncActionState(): void {
+    const active = this.screen === 'playing';
+    this.element.querySelector<HTMLElement>('.action-panel')!.inert = !active;
+    this.element.querySelector<HTMLButtonElement>('[data-action="dash"]')!.disabled = !active || !this.dashAvailable;
+    this.element.querySelector<HTMLInputElement>('[data-shot-count]')!.disabled = !active;
   }
 
   private setText(selector: string, value: string | number): void {

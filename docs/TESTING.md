@@ -1,201 +1,174 @@
-# Testing and Verification
+# Testing and verification
 
-The maintained automated suite uses Vitest and runs in Node. It exercises structural rules, generated content, planned evolution, reserve conservation, pickups, collision math, dash movement, bot decisions, victory collection, round transitions, and character instance allocation. It is not an end-to-end browser suite.
+Reviewed on 2026-10-09. The current runtime is a four-fighter battle with procedural cover and inventory ammunition. Node rule tests and disposable browser integration checks have different scopes.
 
-## Audit verification on 2026-10-06
+## Current coordinated-bot verification, 2026-10-09
 
-The GitHub Pages deployment follow-up passed **200 tests in 14 files**, the production build with `DEPLOY_BASE_PATH=/punk-brick-arena/`, and all three Node publication guards. The extra asset test covers portrait URLs beneath a project prefix; the new publication guard rejects an entry script outside that prefix. The dated audit results below retain their original counts and scope.
+The final rule suite passed **446 tests in 23 files** in **55.77 seconds**, using `npm test -- --maxWorkers=2` without concurrent browser work. An earlier concurrent run hit three existing five-second test timeouts; the isolated final run passed every assertion without raising test timeouts. This duration is not gameplay FPS.
 
-The accepted integrated serial audit run passed **199 tests in 14 files** with Vitest 4.1.11 in 58.11 seconds. After the debris-stacking fix, the same 199 tests in 14 files passed again; that run overlapped active local browser work and took 119.35 seconds, so its duration is not a performance reference. The current production build passed strict TypeScript checking and Vite compilation. Its JavaScript bundle is 2,612.62 kB minified / 408.94 kB gzip; the existing large-chunk warning remains. Initial sandbox attempts failed with filesystem `EPERM` before checking the application; the successful retries are the accepted results.
+`scripts/bot-squad-browser-audit.mjs` passed **11 production-loop fixture entries** and **five native-map smoke runs**, with **zero page/console errors** and physical inventory conserved. Its accepted report is `artifacts/bot-squad-final-v2/report.json`. Fixtures cover round policies 1/2/3/4/6, allied projectile protection in rounds 2/3, immediate injury replacement and real pickup recovery, rapid reserve/body volleys, and actual DASH plus pause/restart. A stocked fighter fired five real 20-part groups with 0.2333-second spacing; an unstocked healthy fighter spent twelve safe attached pieces across four three-part groups with the same spacing, retaining its Core. These are granted-stock/forced-contact fixtures, not earned progression.
 
-The new maintained gameplay audit adds 22 cases: 100 deterministic API rounds across five paths, invalid stock rejection, attachment-capacity storage, reserve ID collision/cache handling, five complete-body Core cascades, five blueprint/spatial connectivity comparisons, and an adversarial sub-epsilon geometry fallback. Three renderer tests compare exact picking against Three.js across the roster, growth, damage, gaps, transformed roots, and clipping distances. Earlier case counts below are dated historical results.
+Native runs each advanced 30 combat seconds on regenerated maps after forced round entry, with a stationary player and normal bot inventories/pickups. The native fourth round observed a recovery/attack-slot swap without fixture injury. All five remained in combat at the smoke limit; they are partial behavior checks rather than completed matches or human balance measurements. Loaded production module hashes are included in the report.
 
-The separate browser audit completed **100 assisted projectile matches**, 20 consecutive wins per evolution, with active bots, damage, pickups, reward collection, exact carryover, and zero page/console errors. Autoplay advances fixed simulation time and assists aim/evasion; this is not human play or a balance estimate. Reports record the loaded source snapshot. See [Gameplay audit](GAMEPLAY_AUDIT.md) for progression, final-source geometry/UI rechecks, and precise fixture boundaries.
+To repeat the command/team audit: `node scripts/bot-squad-browser-audit.mjs`. `SQUAD_AUDIT_OUTPUT`, `SQUAD_AUDIT_SEED`, `SQUAD_AUDIT_PORT`, `SQUAD_AUDIT_URL`, `PLAYWRIGHT_MODULE` and `CHROME_PATH` are configurable. The default seed is 927. Response-only instrumentation freezes RAF stepping and adds disposable fixtures; it does not modify game source or give bots runtime resources.
 
-The final-source browser recheck passed for all five paths with exact 100% body completion asserted in both phases, close-range projectile hits, combat/reward pause, transition, result guard, defeat/restart, transformed camera bounds at four arena corners, and non-overlapping vertical placement for a 12-piece debris pile. It reported zero page/console errors. This separate fixture run preserves the original 100-match evidence and its source hashes.
+Final strict TypeScript/Vite build and three publication/security guards passed. The existing battle regression passed all **21 fixture entries** across five evolution paths with zero errors (`artifacts/battle-audit-squad-final/browser-report.json`, `BATTLE_AUDIT_MATCHES=0`). The separate real-touch audit passed portrait 390 × 844 and landscape 844 × 390, movement/firing/release reset and zero overflow/errors (`artifacts/mobile-audit-squad-final/report.json`). No new full assisted matches are claimed in this stage.
 
-The [Performance audit](PERFORMANCE_AUDIT.md) records coordinated before/after measurements on an HONOR laptop with Ryzen 5 5500U and Radeon integrated graphics. It separates live simulation from render-only sampling, legal damage from synthetic stress, and development load from production load. Remaining isolated frame delays mean sustained interactive 60 FPS is not certified.
+## Prior arena-aligned HUD verification, 2026-10-09
 
-The [Security audit](SECURITY_AUDIT.md) records the targeted Vitest upgrade, zero advisories in live full and production-only npm audits, two separate Node guard tests, source/output scans, and production-browser checks. Local antivirus rewrites the browser-observed CSP; raw preview headers/meta match the configured policy. Remote hosting is unverified.
+The production HUD audit passed **11 viewport/DPR cases** with **zero page/console errors**, equal desktop column bounds, arena-base alignment, no card clipping or horizontal overflow, and working range, DASH, pause/resume and defeat controls. Range input changed between 19/20 without firing. The accepted report is `artifacts/hud-arena-final-v2/report.json`.
 
-```sh
-npm test -- --maxWorkers=1 --no-file-parallelism
-npm run build
-npm run security:check
-node scripts/gameplay-browser-audit.mjs
-node scripts/performance-audit.mjs current
-node scripts/security-browser-audit.mjs
-```
+| Cases | CSS viewport and DPR |
+| --- | --- |
+| Large desktop | 1971 × 862 and 1872 × 879, DPR 1 |
+| Laptop and boundary | 1366 × 768 at DPR 1/2; 1281 × 768 at DPR 1 |
+| Compact desktop | 1024 × 768 at DPR 1 |
+| Zoom equivalents | 1314 × 575 at DPR 1.5; 986 × 431 at DPR 2 |
+| Short fine-pointer window | 1366 × 480 at DPR 1 |
+| Coarse-pointer touch | Portrait 390 × 844 and landscape 844 × 390, DPR 2 |
 
-The browser scripts use an existing Playwright runtime and Chrome, with configurable local paths described in the audit documents/scripts. Run performance measurements separately from tests and other browser audits. QA mutation controls are injected into disposable browser responses and are absent from the production source/build. Audit JSON, CPU profiles, and screenshots are written to ignored `artifacts/` directories.
+The desktop contract applies above 1280 pixels wide and at least 600 pixels high: equal `clamp(280px, 17vw, 336px)` widths, projected outer-base top/bottom anchors, matching 44/56 rows and large common Segoe UI/Arial typography. Compact layouts cover smaller windows; fine-pointer heights of 500 pixels or less use a 64-pixel top and header-only Backpack. Forty camera/layout cycles preserved the anchors, and shake did not move them. GPU drawing was suppressed only inside that stability loop; these checks do not measure GPU FPS. Zoom-equivalent viewport/DPR cases are not native browser-zoom tests.
 
-The evolution integration also received a disposable Chromium review of all five paths in both full body phases, victory rebuilding, Next Round stock preservation, restart, movement/dash/shooting, camera framing, and the narrow lobby. It reported zero page/console errors. The local evidence is in ignored `artifacts/evolution-game/`. QA-only controls were injected into the test browser's module response and are not shipped in game source.
+Granted stock of 240 parts and separate five-digit display checks were isolated layout fixtures, not naturally earned progression. Normal screenshots show native counts; `-large-counts` images show the separate display fixture. Six focused rendering tests passed in **1.47 seconds**; strict TypeScript/Vite build, three Node publication/security guards and the security scan passed.
 
-A separate 15-victory simulation per path conserved all parts and kept each body connected. It used VIOLET, no player damage, and direct collection of every defeated base enemy; it did not include the match loop's neutral starting drops, combat movement, or reward animation. All five paths reached phase 3 by round 15 (approximately 38–88% of its final body, depending on path). This is a progression sanity check, not an estimate of a player's win rate or real match duration.
+The final battle regression passed **21 fixture entries** with **zero page/console errors** across all five evolution paths, recorded in `artifacts/battle-audit-hud-final/browser-report.json`. It ran `scripts/battle-browser-audit.mjs` with `BATTLE_AUDIT_MATCHES=0`, using granted complete forms and forced cases for corner framing, picking/hits, fired locks, rune behavior, defeat/victory and controls. The previously recorded five assisted matches belong to the prior snapshot below.
 
-## Run the checks
+The final separate mobile audit passed portrait **390 × 844** and landscape **844 × 390**, with real coarse-pointer contexts, CDP-dispatched movement/firing touches and input reset after release. Both had zero horizontal overflow and zero page/console errors. Its accepted report is `artifacts/mobile-audit-hud-final/report.json`.
+
+## Prior fixed-height HUD, immediate-defeat and bot record, 2026-10-09
+
+The following accepted evidence predates the current enlarged, arena-aligned HUD and its short-window correction. It verifies that recorded snapshot rather than the latest layout.
+
+The preceding aligned-HUD, immediate-defeat and purposeful-bot snapshot passed **367 tests in 21 files** in **188.29 seconds**, while browser/QA work ran concurrently. Strict TypeScript/Vite production build passed after that snapshot's code changes; the three Node publication/security guards also passed. This test-run duration is not a gameplay performance measurement.
+
+Focused isolated HUD checks passed desktop 1872 × 879 and 1366 × 768, portrait 390 × 844 and landscape 844 × 390, with zero page/console errors or horizontal overflow. All **21 side-panel text roles** computed the same Segoe UI/Arial font family. Desktop columns had equal widths, top/bottom edges and **480-pixel heights**, with equal card rows. Native range arrows/Home/End, pointer/keyboard isolation, simultaneous CDP slider/joystick touch, DASH, pause focus/Tab wrapping, defeat/restart/character selection and the absence of a fabricated winner/placement were checked. The report is `artifacts/hud-unified-font-check/report.json`. The final actual-game review at all four viewports confirmed the transparent shared-renderer Backpack preview, equal desktop columns, readable text and correct canvas resizing.
+
+The final battle audit passed **five assisted matches plus 21 separate fixture entries**, with **zero page/console errors** and conservation in every checked batch. All five matches ended in immediate player defeat; three ended with three bots still alive and two with one bot alive. Victory, reward collection and Next Round were verified in separate fixtures. The accepted report is `artifacts/battle-audit-hud-defeat-final/browser-report.json`; per-path durations and masses are in [Gameplay audit](GAMEPLAY_AUDIT.md). Granted bodies, forced contacts and eliminations remain separate from assisted matches.
+
+The separate mobile audit passed portrait 390 × 844 and landscape 844 × 390, using coarse-pointer contexts and actual joystick/firing touches, with no horizontal overflow or page/console errors. Its report is `artifacts/mobile-audit-hud-defeat-final/report.json`.
+
+A 90-combat-second AI smoke run recorded preparation ending within six seconds, then hunting, evasion, cover clearing, flanking and finishing decisions. It saw two eliminations, conserved **10,727 parts** and recorded zero errors. Its report is `artifacts/bot-purpose-smoke.json`. This deterministic smoke run checks active behavior and inventory conservation; it does not establish human balance.
+
+## Prior snapshot evidence
+
+The earlier 2026-10-09 volley/rune snapshot passed **349 tests in 20 files** in **130.08 seconds**, build and three security guards. Its accepted browser record was five assisted matches plus 19 fixtures with zero errors, in `artifacts/battle-audit-volley-final/browser-report.json`. All ended with one surviving Core: Bass Titan won as the player, while the four bot wins completed the former spectator flow. The final isolated rendering recheck passed 15 fixtures in `artifacts/battle-render-volley-final/browser-report.json`; both mobile orientations passed in `artifacts/mobile-audit-volley-final/report.json`. These are historical results from before immediate defeat, the aligned HUD and the current bot decision changes.
+
+Before the volley, rune and compact-HUD changes on 2026-10-09, the preceding battle snapshot passed 298 tests in 19 files in 103.44 seconds, build/security checks, five assisted matches plus 14 fixtures with zero page/console errors, and both separate coarse-pointer mobile viewports. Its accepted reports are `artifacts/battle-audit-final/browser-report.json` and `artifacts/mobile-audit-final/report.json`. Those results do not certify later source changes.
+
+The 2026-10-06 duel verification (199 integrated tests, followed by a 200-test deployment check, plus 100 assisted duel matches) remains historical. It does not verify the present four-actor entry point, physical ammunition, building cover or immediate-defeat flow. See [Gameplay audit](GAMEPLAY_AUDIT.md) for the retained record.
+
+## Run the maintained checks
 
 ```sh
 npm test
 npm run build
+npm run security:check
+npm run test:mobile
 ```
 
-The build performs strict TypeScript checking for `src/` before producing `dist/`. Tests are a separate command. The GitHub Pages workflow now runs tests, build, and publication guards before deployment on each push to `main`; no coverage threshold is configured.
+The build runs strict TypeScript checks before producing `dist/`; it does not run tests or regenerate assets. The GitHub Pages workflow runs tests, build and publication guards before deployment. No coverage threshold is configured.
 
-If the 15-round stress case exceeds its 30-second timeout during a parallel run, retry without file parallelism:
+For a serial run, particularly when the retained long-run structure stress case reaches a worker/timeout limit:
 
 ```sh
 npm test -- --maxWorkers=1 --no-file-parallelism
 ```
 
-The evolution integration passed 174 cases in 12 files with the serial command above. Its initial parallel run passed all assertions but reported a worker RPC timeout, followed by a clean serial run. The exhaustive blueprint test yields between head/body combinations so it does not block worker communication. These results do not establish a frame-rate guarantee.
-
-For focused work:
+Focused current battle checks:
 
 ```sh
-npm test -- src/game/core-protection.test.ts
-npm test -- src/game/pickup.integration.test.ts
-npm test -- src/game/rounds.test.ts
-npm test -- src/game/movement.test.ts src/game/bots.test.ts src/game/victory.test.ts
-npm test -- src/game/evolution.test.ts --maxWorkers=1 --no-file-parallelism
+npm test -- src/game/ammunition.test.ts src/game/projectiles.test.ts src/game/rune.test.ts
+npm test -- src/game/arena.test.ts src/game/battle-combat.test.ts
+npm test -- src/game/battle.test.ts src/game/bots.test.ts src/game/victory.test.ts
 ```
 
-After changing the catalog, source images, importer, or vendored generator, run `npm run assets:generate` before tests/build and inspect both generated JSON files. Do not assume a passing build regenerates content.
+After portrait/generator changes, run `npm run assets:generate`. After authored body changes, rebuild/audit prototypes and run `npx tsx scripts/generate-evolutions.ts`; see [Evolution](EVOLUTION.md). Build alone does neither.
 
-After changing authored body geometry, rebuild/audit the prototype models and run `npx tsx scripts/generate-evolutions.ts` before tests/build. The head generator and body exporter are separate pipelines; see [Evolution and reserve](EVOLUTION.md).
+## Automated scope
 
-## Existing automated coverage
+| Area | Maintained evidence |
+| --- | --- |
+| Four-fighter rounds | `battle.test.ts`: roster, namespaces, immediate player-loss/sole-player outcome, fallen bank release, continuation, restarted base inventory |
+| Battle contacts | `battle-combat.test.ts`: nearest non-owner/live actor or remaining cover, cover blocking, rebound immunity and exact-part width |
+| Physical ammo | `ammunition.test.ts`: reserve-first 1–20 batches, shortages, Core exclusion, deterministic body removal, surviving connectivity, no firing cascade and conservation |
+| Fired parts | `projectiles.test.ts`: exact grouped parts, compact offsets/radius, actual-count damage, continuous age, impact/landing locks, boundary arcs, clear interior landing and unavailable landing retention |
+| Color rune | `rune.test.ts`: 30-second intervals, missed-rune persistence, deterministic living contact, original head/authored body palettes, unchanged IDs/geometry/stock and one-time painting |
+| Arena | `arena.test.ts`: seeded variants, five templates, compatible/unique pieces, full-form spawn-to-center routes, floor support, local demolition conservation, current holes, swept movement/dash, sliding and stable growth recovery |
+| Battle bots | `bots.test.ts` and `battle.test.ts`: multi-opponent vulnerability, loot/repair/stock, building harvest, footprint routing/avoidance, offensive cover clearing even with a valid proxy route, opening tiers/styles, preparation capped at six seconds, stable hunting/finishing targets, recovery without disrupting in-range repairs, flanking/cover clearing, interception/opening-aware batches, pressure intent and threats |
+| Structure/Core | `structure.test.ts`, `core-protection.test.ts`, `collision.test.ts`: face connectivity, geometry, random damage, cascades, exposure and swept circles |
+| Pickup/evolution | Pickup and evolution tests: nearest-first ownership, fired locks, exact slots, all 170 head/path/phase combinations, reserve caches, repair, transition and part conservation |
+| Rewards | `victory.test.ts`: bounded loose-reward collection, reserve assembly, fired lock, eligibility, phase transition and completion |
+| Assets/rendering | Template/renderer tests: source provenance, geometry/connectivity, instance allocation, all 6,241 floor markers within their instance buffer, and picking against Three.js |
+| Compatibility | `rounds.test.ts`, `combat.integration.test.ts`, `gameplay.audit.test.ts`: retained duel and legacy free-growth API scenarios |
 
-Counts below describe the suite reviewed on 2026-10-05.
+Compatibility tests still protect shared damage, geometry, assembly and carryover behavior. Their direct-damage 20-round scenarios are not current four-fighter browser matches. The legacy free-growth stress fixture grants parts and checks allocation; it does not model live planned progression or establish FPS.
 
-| Test file | Cases | Coverage |
-| --- | ---: | --- |
-| [collision.test.ts](../src/game/collision.test.ts) | 3 | Fast segment crossings, misses/out-of-range contacts, initial overlap, zero motion |
-| [pickup.test.ts](../src/game/pickup.test.ts) | 6 | Five-second owner restriction, 0.8-second shared delay, settled state, neutral drops, latest ownership |
-| [core-protection.test.ts](../src/game/core-protection.test.ts) | 7 | Protected selection, exact/fractional thresholds, cascades, oversized hits, repairs, next-hit eligibility, lone Core |
-| [structure.test.ts](../src/game/structure.test.ts) | 17 | Cloning, IDs, Core/face connectivity, bounds, batch damage, elimination, vacancies, repair priority, non-overlapping growth |
-| [pickup.integration.test.ts](../src/game/pickup.integration.test.ts) | 7 | Full-speed collection of 120 pieces, nearest-first batches, asymmetric reach, owner lockout, rejected pieces, contested loot, repairs |
-| [templates.test.ts](../src/assets/templates.test.ts) | 52 | Roster/portrait provenance and per-template geometry, overlap, and connectivity checks |
-| [combat.integration.test.ts](../src/game/combat.integration.test.ts) | 34 | Default power on every template and complete structural damage/collection loops with conservation and immutable source templates |
-| [rounds.test.ts](../src/game/rounds.test.ts) | 6 | Roster eligibility, opponent cycles, victory guard, exact carryover, restart, long-run structure/render capacity |
-| [movement.test.ts](../src/game/movement.test.ts) | 4 | Dash distance/direction, diagonal normalization, cooldown, arena bounds |
-| [bots.test.ts](../src/game/bots.test.ts) | 18 | Four styles, loot growth/ownership, retreat, evasion/cooldown, sniper fire/lead, corners, Balanced tactics, opening difficulty, random repeats, restart progression |
-| [victory.test.ts](../src/game/victory.test.ts) | 5 | Reward collection, repair/growth, carryover, empty arena, rejected pieces, capacity, defeated player |
-| [evolution.test.ts](../src/game/evolution.test.ts) | 15 | All 170 head/body combinations, five complete phase-2 bodies, colors/sizes, connected growth, bank ownership, repairs, phase-3 conservation, carryover, victory and reset |
-| **Total** | **174** | **12 files** |
+## Current browser harness
 
-The legacy free-growth 15-round stress test manually defeats enemies and feeds their pieces directly into `attachPiece()`, reaching more than 7,000 attached pieces. It then checks body and stud instance counts. It does not exercise the new blueprint placement policy. Evolution tests separately cover 170 head/path/phase combinations, complete phase-2 bodies for all five paths, bank/repair behavior, phase transition, and carryover. These tests construct Three.js scene/mesh objects without creating a browser WebGL renderer.
+```sh
+node scripts/battle-browser-audit.mjs
+```
 
-Tests inject seeded random functions or controlled values where needed. The live application uses `Math.random()`, so browser match sequences are not reproduced by those fixtures.
+The default runs one assisted match per evolution, five total, followed by separate granted/instrumented fixtures. The production four-actor `tick()`, bots, ammunition, movement, impacts, building damage, pickup and result flow remain active during assisted matches. A disposable controller drives the player; fixed simulation stepping replaces ordinary RAF scheduling.
+
+The script records loaded module hashes, per-match winner/placement/duration/part counts, fixture results, and page/console errors. Its default output is ignored `artifacts/battle-audit/browser-report.json`; the aligned-HUD/immediate-defeat rerun uses `artifacts/battle-audit-hud-defeat-final/browser-report.json`. Conservation includes buildings, every fighter/stock, shots and drops. Cross-round assertions compare the player's exact carried inventory.
+
+The default five-path battle harness records **21 fixture entries**, separate from assisted matches. Five entries are complete-body reports, one per path, each testing both stages 2 and 3: exact full assembly, framing at four clamped arena corners, and a shot at a stationary rival in an isolated arena without cover. That rival is placed beyond the bodies' separation distance. Each report also collects a rune on the granted final body, checking its authored palette and unchanged installed IDs/geometry/shapes, stock and mass. These ten granted body states test rendering/contact and painting integration rather than naturally earned progression or combat through terrain.
+
+The other sixteen entries are:
+
+| Fixture | Isolated check |
+| --- | --- |
+| Unified HUD/range | Rivals, clock and enemy stock absent; player summary present; native keyboard slider updates requested volley without firing |
+| Real-part volley (three entries) | Counts 1, 3 and 20 each spend and visibly carry the same number of parts, deal that direct damage to a sufficient fixture target, return all parts with lock five, and preserve mass |
+| Center rune | No early spawn, collection at 30 seconds, original-head palette, renewed availability at 60 seconds, visible cube and mass conservation |
+| Combat pause | Logical state freezes |
+| Reserve-first/rebound | Exact stock part fires; all owners respect landing and age-five lock |
+| Close shot | Normal close-range actor impact preserves the fired part and mass |
+| Cover shot | Terrain takes the hit before the rival behind it |
+| Last impact | Two fired parts retain correct continuous ages when one hit ends combat; both ages equal elapsed combat time and retain lock five on entry to collection |
+| Lethal player impact | Immediate defeat stops later projectile contacts in the same step; remaining shots become age-preserving locked drops, and simulation/input stay frozen |
+| Fallen bank | Eliminated stock becomes contested drops exactly once |
+| Immediate result | Player loss with two rivals alive shows defeat without a winner, spectator phase or Next Round |
+| Victory/continuation | Fired lock, reward pause, exact carryover and regenerated map |
+| Aligned desktop HUD | Actual game at 1872 × 879 and 1366 × 768 has equal column widths/top/heights/bottom edges, readable common typography and visible stock preview |
+| Narrow HUD | Portrait 390 × 844 keeps the parts slider visible, rivals absent and horizontal overflow zero |
+
+Fixtures grant or relocate parts/actors and trigger eliminations where needed. They are integration checks, not naturally earned match outcomes.
+
+The script uses an existing Playwright runtime and Chrome. Override `PLAYWRIGHT_MODULE` and `CHROME_PATH` for other installations. Controls include `BATTLE_AUDIT_PORT` (default 5194), `BATTLE_AUDIT_SEED` (413), `BATTLE_AUDIT_MATCHES` (one per path), and `BATTLE_AUDIT_OUTPUT`. Optional positional arguments select path IDs. An assertion failure is saved before browser/server cleanup.
+
+`npm run test:mobile` runs the separate `scripts/mobile-browser-audit.mjs` audit at portrait 390 × 844 and landscape 844 × 390. It checks a real coarse-pointer/touch context and CDP-dispatched joystick plus firing touches, movement/shots, input reset after release, and layout. Its default report is `artifacts/mobile-audit/report.json`; `MOBILE_AUDIT_PORT` and `MOBILE_AUDIT_OUTPUT` are configurable. Landscape coverage belongs to this audit, not the battle harness's portrait HUD fixture.
+
+`scripts/gameplay-browser-audit.mjs` is the historical duel harness. Its response instrumentation assumes the old two-actor loop; it is not the maintained harness for the current entry point. The older English/evolution browser reviews under ignored `artifacts/` have the same snapshot limitation.
+
+Headless software rendering and assisted fixed-step matches cannot measure human balance or real GPU FPS. Run performance sampling separately from tests/browser audits. See [Performance audit](PERFORMANCE_AUDIT.md) and [Security audit](SECURITY_AUDIT.md) for their dated scopes; earlier results are not automatically current-runtime certifications.
 
 ## Manual browser checklist
 
-Use `npm run dev`, or run a fresh build followed by `npm run preview`. These are checks to perform for gameplay/UI changes, not a claim that every item was rerun during the documentation update.
-
-| Area | Action and expected result |
+| Check | Expected behavior |
 | --- | --- |
-| Lobby | Visit all three roster pages; select first and last entries; confirm name, portrait, piece count, and live preview match. Paging alone must not change the selected character; boundary pagination buttons must be disabled |
-| Evolution selection | Select each of the five paths with different heads; confirm its description and combat HUD. A fresh run starts with the selected head, zero built body slots, and empty reserve; the lobby preview remains a head |
-| Navigation and credits | Follow Play/How to Play/About anchors; verify creator/generator links and the distributed attribution link |
-| Layout | Resize between wide desktop and narrow viewport; the lobby scrolls and the preview canvas retains correct framing |
-| Start | Begin a fight; verify both actors, HUD, opposite spawns, and neutral starting debris |
-| Movement | Use WASD and arrows, including diagonals and arena edges; check normalized input, actor separation, and bounds |
-| Dash | Press Space while moving and while stationary; confirm direction, burst, cooldown indicator, arena bounds, no repeated burst while held, firing during a burst, and reset on a new fight. It must not grant invulnerability |
-| Bots | Observe all four styles' movement, loot priorities, evasion, firing range, and sniper panic HUD state. Round 1 must be Balanced/easy, round 2 Balanced/medium, and later rounds full-strength random styles with repeats allowed; restart returns to Balanced/easy |
-| Aim/shoot | Fire at visible upper and lower parts of the enemy; shots use planar targeting and holding the button repeats fire. With a fully grown build, hit a nearby enemy inside the shooter's floor circle; shots must start at the character's center and must not skip past the target |
-| Damage | Change power in lobby/pause; both fighters use the new value and cascades may exceed direct power |
-| Core | Observe protected/exposed HUD feedback; exposure alone is not defeat, and repairs do not rearm protection during the fight |
-| Pickup | Run near landed debris; verify batches, repair/growth counters, and the delayed recovery of your own pieces |
-| Planned assembly | Check that compatible lost slots repair before new growth, incoming colors/shapes remain unchanged, and growth stays within the selected silhouette |
-| Reserve | Collect a currently incompatible size; its world drop disappears and the reserve increases. Check that later connections trigger assembly, only installed pieces increase body progress, and each side panel represents its owner's stock without requiring a visit |
-| Backpack panels | Check exact counts, empty-state copy, 3D tray framing, and the 240-piece sample label; narrow/short screens must show compact counters. Confirm side panels leave the central arena usable and no additional WebGL context is created |
-| Pause | Use P/Escape and switch windows/tabs during combat and victory collection; fight time, dash timers, pickup ages, and reward movement stop, held fire clears, and resuming restores the interrupted phase |
-| Victory | Confirm victory badge, reward count, statistics, survivor count, evolution/reserve summary, and focused Next Round action; continue with body damage, stage, and stock preserved. P/Escape must not dismiss the result |
-| Phase transition | After victory collection/assembly leaves at least 85% of the phase-2 body attached, verify phase 3 unlocks, the surviving head/Core remains, and attached-plus-stored parts are conserved. It must not unlock during active combat or grow beyond the final plan |
-| Defeat | Confirm defeat badge and focused restart action; Next Round must be hidden and disabled, with no reward or survivor panel |
-| Reset and settings | Use Start Over/R and return to character selection; verify a base head, zero body progress, empty reserve, and round 1 on restart, preserved damage/mute settings, selected head/path and roster page, and reset lobby scroll. Reload must restore run/settings defaults |
-| Audio | Start with a user gesture; verify shots/hits, pickup and result cues, and mute via M/button |
-| Keyboard UI | Tab through roster/settings and modal actions; confirm visible focus, native Space/Enter behavior, and modal focus cycling. The top bar must be inert behind pause/results; the canvas regains focus on start/resume |
-| Keyboard layout and input focus | Switch to a non-Latin layout and use the same physical game keys. While the damage slider is focused, its arrow keys must adjust damage and game shortcuts must be ignored; resume through the button or after leaving the input |
-| Pointer release | Start firing on the canvas and release over the HUD or outside the canvas; firing must stop. Clicking a menu control must not shoot |
-| Reduced motion | Enable the browser/OS preference; preview sway, CSS animation, and extra dash/victory-pickup particles stop; remaining combat motion and loot attraction are expected |
-| Production assets | Check browser console/network for missing portraits, all five evolution PNGs, audio, scripts, or attribution after a production build |
-| Large builds | Inspect silhouette, aiming, camera framing, input response, and frame rate after substantial growth |
+| Lobby | All 17 heads and five paths selectable; pagination preserves selection; sound, credits and focus work |
+| Start | Four corner spawns, aligned build/Backpack and DASH/range columns, twenty buildings/five types, four wide routes and opening debris; no rival/time/round/alive HUD or pickup toast |
+| Ammo | Request 1–20 parts, default 1; reserve fires before body, actual available count sets damage, every identity/shape/color/size appears; body removal creates no cascade; bare Core cannot fire |
+| Shots | Close targets remain hittable; nearest cover blocks an actor; hit parts land as loot; boundary arcs do no damage |
+| Recovery | Every part in a volley waits until landing and age five for every actor, including after rebound and during rewards |
+| Rune | Center cube appears each 30 combat seconds; living player/bot contact paints installed head/body once, preserves missing parts/stock/IDs/geometry, leaves later loot colors ordinary, and does not stack uncollected cubes |
+| Cover | Movement and dash stop/slide; damage removes local bricks and unsupported sections; demolished gaps admit shots and movement; full-form growth recovery leaves a stable clear position |
+| Combat | Bots prepare for at most six seconds, then hunt/finish, recover, clear/flank cover or evade with real ammo; fallen stock is contestable while the player lives |
+| Elimination | Bot death releases stock and combat continues; player death immediately shows DEFEAT / You Lost and freezes logic, ages, rune time and inputs; Restart/Choose Character remain, Next Round stays hidden |
+| Victory | Only the final surviving player collects loose rewards; standing buildings remain; Next Round preserves exact inventory and creates fresh bots/map |
+| Evolution | Compatible repair precedes growth; 85% phase-2 completion can transition only after victory processing; no new parts are granted |
+| Pause/focus | Combat/reward time, locks, rune clock, cooldowns and processing freeze; held input clears; resume returns to the same phase |
+| Touch/layout | Joystick/arena aim/fire and DASH work; slider remains touch-accessible and isolated, clears joystick, and player-only HUD has no portrait/landscape overflow |
+| Presentation | Full bodies fit camera; all side-panel roles share Segoe UI/Arial, desktop columns align in width/height/bottom, stock counts and visible 3D sample agree, keyboard focus/audio/reduced motion work |
 
-Victory runs automatic collection before showing the result. Check flying debris, defeated-bot reserve transfer, the counter, pause/resume, fight-clock freeze, reserve assembly, and the resulting survivor before Next Round. Movement, firing, and dash must be inactive; the dash HUD and toasts are hidden. Valid unplaceable or attachment-cap-limited pieces enter the reserve. Only rejected invalid loot can remain on the ground and be discarded on the next round. Progress counts body or bank pickups, so skipped invalid pieces can leave the fraction below 100% without blocking completion. Conversely, 100% collected does not mean reserve assembly or evolution is finished. An empty arena must still wait for the 2.4-second minimum. Defeat has no reward collection.
+## Runtime diagnostics and limits
 
-## Runtime diagnostics
+Read `window.__arenaSnapshot` in development. It reports phase/round/time, player and all fighters, alive count, player placement, winner, building count/revisions, stock, requested shot count, rune state, drops/volley groups, part mass, combat events, input, statistics and draw calls. It has no remote calls, telemetry or save capability.
 
-The browser exposes a getter at `window.__arenaSnapshot`. Inspect it in developer tools:
+The enlarged floor grid allocates all 6,241 markers before writing their matrices; the regression checks the final marker and instance capacity. A visual review on the 160-unit map confirmed the former gray bands were absent.
 
-```js
-window.__arenaSnapshot
-```
+The harness injects QA controls into disposable module responses; production source/build does not contain those controls. Screenshots, reports and profiles remain ignored local artifacts.
 
-It returns `phase`, `round`, `elapsed`, current `damage`, player/enemy positions and piece counts, player evolution progress and reserve count, enemy reserve count, the player's legacy vacancy count, drop/projectile counts, fight `stats`, and renderer `drawCalls`.
-
-Statistics include elapsed time, repairs, growth, player shots/hits, and direct/cascade removals credited to player hits. The snapshot is a read-only diagnostic summary, not a save file or a control API. Read the HUD or tests for detailed bot, dash, and victory state. No remote calls or telemetry are performed by this getter.
-
-## Optional local review artifacts
-
-The ignored `artifacts/` directory in this workspace contains `pickup-benchmark.ts`, `pickup-review.html`, and `round-review.html`, plus historical outputs and screenshots. They are not guaranteed to exist in another checkout and are excluded from the default TypeScript scope and production build.
-
-The pickup benchmark can be run locally with `npx tsx artifacts/pickup-benchmark.ts` after dependencies are installed. It compares an earlier single-piece pickup loop with batch collection and records local timings. Timings depend on the machine and are not a release performance guarantee.
-
-The English update refreshed `round-review.html` with the required canvas and dash/bot/difficulty/victory fields. `make-action-review.mjs` regenerates a local main-loop copy with explicit QA outcome controls. Both remain development fixtures, excluded from production.
-
-`english-ui-review.mjs` is a local Playwright/Chromium check with machine-specific runtime paths. It starts an isolated Vite server on port 5187 and checks the real lobby/combat UI plus the outcome fixtures. It saves an English-only DOM/attribute audit, layout checks, screenshots, and a JSON report, then closes the browser and server. It is not part of `npm test` or a portable browser-test setup. The two About screenshots were replaced with current English captures.
-
-`artifacts/review-evolution-game.mjs` uses the real local game and injects temporary QA controls into that disposable browser's module response. It supplies known source-piece sizes to complete bodies, triggers victory, checks exact attached-plus-reserve carryover, checks reset and projected body bounds, and captures all five paths in both phases. Movement/dash/shooting are sampled on Mosher, and narrow-lobby overflow is checked at 390 x 844. These forced full-body checks establish rendering/integration behavior, not naturally earned progression. The QA controls do not exist in shipped source.
-
-`artifacts/evolution-run.ts` separately simulates 15 ideal victories per path and writes `artifacts/evolution-game/run-15.json`. `report.json` records all five browser paths; `report-frontman.json` records the focused Winged Frontman recheck. Both report files contain empty error lists. These artifacts are local evidence, not portable package commands or committed CI outputs.
-
-Those evolution browser reports predate the later Backpack/Rival stock panel presentation. Their zero-error results and framing checks apply to the recorded integration snapshot and must not be treated as a browser verification of the newer panel cameras, viewports, or responsive tray layout. Current panel behavior is documented from source; use the panel checklist above when verifying it.
-
-## Evolution integration verification recorded on 2026-10-05
-
-| Check | Recorded result |
-| --- | --- |
-| `npm test -- --maxWorkers=1 --no-file-parallelism` | Passed: 174 tests in 12 files, with successful exit and no unhandled errors |
-| Initial parallel run | All assertions passed, but a worker RPC timeout prevented a clean run; the serial result above is the accepted verification |
-| `npm run build` | Passed TypeScript checking and Vite production build; large-chunk warning remains |
-| Browser integration | All five paths, both completed body phases, victory/phase rebuilding, reserve carryover, restart, sampled controls, full-body framing, and narrow lobby; no recorded page/console errors |
-| Fifteen-victory simulation | Each path conserved attached plus stored pieces and kept attached parts Core-connected across all 15 rounds |
-| Documentation refresh | Cross-checked against current rule modules and runtime flow; English text with no Cyrillic. No game tests or browser runs are claimed solely for this documentation edit |
-
-The simulation's phase-3 results are reproducible evidence for that fixture only:
-
-| Path | Phase 3 unlocked after simulated round | Phase-3 body at round 15 | Stored pieces at round 15 |
-| --- | ---: | ---: | ---: |
-| Mosher | 11 | 3,745 / 9,718 (38.5%) | 3,154 |
-| Guitar Demon | 6 | 3,609 / 4,084 (88.4%) | 3,195 |
-| Stage Spider | 6 | 3,455 / 6,991 (49.4%) | 3,349 |
-| Bass Titan | 8 | 3,663 / 7,591 (48.3%) | 3,232 |
-| Winged Frontman | 7 | 4,720 / 5,391 (87.6%) | 2,166 |
-
-## Earlier English-interface verification on 2026-10-05
-
-These results predate the evolution integration; their test count and bundle size are historical, not the current totals.
-
-| Check | Result |
-| --- | --- |
-| English-interface `npm test` | Passed: 159 tests in 11 files, 21.53 seconds overall; stress case approximately 15.65 seconds |
-| Earlier default/serial checks | An earlier default run had 152 passes and one stress-test timeout at 30 seconds; its serial retry passed all 153 tests, with the stress case approximately 16.8 seconds |
-| `npm run build` | Passed: TypeScript and Vite static output |
-| Build warning | JavaScript chunk above Vite's 500 kB warning threshold; approximately 1,473 kB minified / 209 kB gzip |
-| `npm run assets:generate` | Passed; all 17 models regenerated with English subtitles |
-| Generated output comparison | All template fields except subtitles unchanged; diagnostics JSON byte-identical |
-| Portrait provenance | All 17 PNGs match recorded Git blob hashes exactly |
-| Vendored text provenance | All 11 recorded text files match after excluding one additional trailing LF in each local copy |
-| English browser review | Passed 11 UI states at 1365 × 900 and 390 × 844, covering lobby, last roster page, combat, pause, victory collection, victory/defeat, Next Round, and About; no page errors or detected text overflow |
-| Language audit | No Cyrillic in project-owned text, generated templates, local review pages, or production output; HTML documents declare `lang="en"`. Installed dependencies and package-manager caches are excluded |
-
-Environment: Windows, Node.js 24.11.0, npm 11.6.1, Vitest 3.2.7, Vite 7.3.6. Dependencies were already installed; a clean `npm ci` was not part of this review.
-
-That English update covered menus, HUD, tooltips, accessibility labels, bot labels/descriptions, combat messages, metadata, character subtitles, and local QA pages. Core states, result actions, and piece-count wording were reviewed for consistent English. Browser captures were inspected at desktop and narrow sizes. Tests and browser/build checks required execution outside the restricted filesystem after sandbox EPERM/launch failures; no test expectations or game rules were changed by that translation patch.
-
-## Coverage limits
-
-There is no maintained browser suite in the package scripts. The local English and evolution reviews cover selected DOM/input/outcome flows and screenshots, but do not exhaust pause-on-blur, audio unlocking, every dynamic message, WebGL rendering across devices, or deployment paths. The structural integration tests do not run the complete game in a browser. Browser full-body fixtures deliberately grant parts, and the long-run simulation bypasses real combat; neither proves that a typical player reaches the same phase on the same round.
-
-The suite does not establish performance at the full 16,000-piece live pickup limit, fairness of random damage, browser compatibility, touch combat, or fun/match duration. It also does not exhaust every arbitrary imported geometry or attachment candidate. Use the manual checks and targeted profiling when those areas change.
+Node tests do not run browser WebGL or prove all DOM flows. Software-rendered browser fixtures do not verify sustained 60 FPS, driver/device compatibility, sound on every browser, native focus behavior, all accessibility tools, or human match balance. Current evidence must be tied to its loaded source snapshot.

@@ -1,4 +1,4 @@
-import type { CharacterTemplate, EvolutionId, Random, Structure } from './types';
+import type { CharacterTemplate, EvolutionId, Piece, Random, Structure } from './types';
 import { enableEvolution, EVOLUTIONS } from './evolution';
 import { carryToNextRound, createStructure } from './structure';
 import { botForRound, type BotStyle, type BotDifficulty } from './bots';
@@ -71,4 +71,117 @@ export function nextRound(templates: CharacterTemplate[], previous: RoundState, 
     remainingOpponents: opponents.slice(1),
     ...botForRound(number, random),
   };
+}
+
+export interface BattleParticipant {
+  id: string;
+  template: CharacterTemplate;
+  structure: Structure;
+  style: BotStyle | null;
+  difficulty: BotDifficulty | null;
+}
+
+/** Actor identity stays stable while each round's new parts receive unique IDs. */
+export interface BattleRound {
+  number: number;
+  playerId: 'player';
+  playerTemplate: CharacterTemplate;
+  player: Structure;
+  participants: BattleParticipant[];
+  remainingOpponents: string[];
+}
+
+export function livingParticipants(round: Pick<BattleRound, 'participants'>): BattleParticipant[] {
+  return round.participants.filter(participant => participant.structure.pieces.has(participant.structure.coreId));
+}
+
+/** The arena winner exists only when exactly one Core survives. */
+export function battleWinner(round: Pick<BattleRound, 'participants'>): BattleParticipant | null {
+  const alive = livingParticipants(round);
+  return alive.length === 1 ? alive[0] : null;
+}
+
+/** The player's run ends on their elimination, even while rivals remain alive. */
+export function playerBattleOutcome(round: Pick<BattleRound, 'participants' | 'playerId'>): 'playing' | 'victory' | 'defeat' {
+  const player = round.participants.find(participant => participant.id === round.playerId);
+  if (!player?.structure.pieces.has(player.structure.coreId)) return 'defeat';
+  return battleWinner(round)?.id === round.playerId ? 'victory' : 'playing';
+}
+
+/** Drain exactly once so an eliminated actor's bank becomes contestable ground loot. */
+export function releaseEliminatedReserve(structure: Structure): Piece[] {
+  if (structure.pieces.has(structure.coreId) || !structure.evolution?.reserve.length) return [];
+  const pieces = structure.evolution.reserve;
+  structure.evolution.reserve = [];
+  structure.evolution.reserveRevision++;
+  return pieces;
+}
+
+function battleRoster(
+  templates: CharacterTemplate[], selectedId: string, number: number,
+  random: Random, remaining: string[] = [], previousIds: string[] = [],
+): { participants: BattleParticipant[]; remainingOpponents: string[] } {
+  const available = templates.filter(template => template.id !== selectedId);
+  if (!available.length) throw new Error('Invalid round roster');
+  let pool = remaining.filter(id => available.some(template => template.id === id));
+  const picked: CharacterTemplate[] = [];
+  for (let i = 0; i < 3; i++) {
+    if (!pool.length) pool = shuffledOpponents(templates, selectedId, random, previousIds.at(-1));
+    // Crossing a shuffled-cycle boundary must not duplicate a model within a
+    // four-player match when the roster has enough different heads.
+    let next = pool.findIndex(id => !picked.some(template => template.id === id));
+    if (next < 0 && available.length >= 3) {
+      const refill = shuffledOpponents(templates, selectedId, random);
+      pool.push(...refill.filter(id => !pool.includes(id)));
+      next = pool.findIndex(id => !picked.some(template => template.id === id));
+    }
+    const id = pool.splice(Math.max(0, next), 1)[0];
+    picked.push(available.find(template => template.id === id)!);
+  }
+  return {
+    participants: picked.map((template, i) => {
+      const behavior = botForRound(number, random);
+      return { id: `bot-${i + 1}`, template, structure: spawn(template, `round-${number}/bot-${i + 1}`),
+        style: behavior.enemyBehavior, difficulty: behavior.enemyDifficulty };
+    }),
+    remainingOpponents: pool,
+  };
+}
+
+export function newBattleRound(
+  templates: CharacterTemplate[], selectedId: string, random: Random = Math.random, evolutionId?: EvolutionId,
+): BattleRound {
+  const playerTemplate = templates.find(template => template.id === selectedId);
+  if (!playerTemplate || templates.length < 2) throw new Error('Invalid round roster');
+  const player = spawn(playerTemplate, 'round-1/player');
+  const roster = battleRoster(templates, selectedId, 1, random);
+  if (evolutionId) {
+    enableEvolution(player, playerTemplate, evolutionId);
+    for (const opponent of roster.participants) {
+      enableEvolution(opponent.structure, opponent.template,
+        EVOLUTIONS[Math.min(EVOLUTIONS.length - 1, Math.floor(random() * EVOLUTIONS.length))].id);
+    }
+  }
+  return { number: 1, playerId: 'player', playerTemplate, player,
+    participants: [{ id: 'player', template: playerTemplate, structure: player, style: null, difficulty: null }, ...roster.participants],
+    remainingOpponents: roster.remainingOpponents };
+}
+
+export function nextBattleRound(
+  templates: CharacterTemplate[], previous: BattleRound, random: Random = Math.random,
+): BattleRound {
+  if (battleWinner(previous)?.id !== previous.playerId) throw new Error('Next Round requires a victory');
+  const playerTemplate = templates.find(template => template.id === previous.playerTemplate.id);
+  if (!playerTemplate) throw new Error('Invalid round roster');
+  const number = previous.number + 1;
+  const roster = battleRoster(templates, playerTemplate.id, number, random,
+    previous.remainingOpponents, previous.participants.filter(participant => participant.id !== previous.playerId).map(participant => participant.template.id));
+  const player = carryToNextRound(previous.player);
+  if (player.evolution) for (const opponent of roster.participants) {
+    enableEvolution(opponent.structure, opponent.template,
+      EVOLUTIONS[Math.min(EVOLUTIONS.length - 1, Math.floor(random() * EVOLUTIONS.length))].id);
+  }
+  return { number, playerId: 'player', playerTemplate, player,
+    participants: [{ id: 'player', template: playerTemplate, structure: player, style: null, difficulty: null }, ...roster.participants],
+    remainingOpponents: roster.remainingOpponents };
 }

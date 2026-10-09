@@ -1,208 +1,129 @@
 # Architecture
 
-Reviewed against version `0.1.0` on 2026-10-06. See [Product requirements](../PRD.md) for player-facing rules and [Development](DEVELOPMENT.md) for tuning values.
+Reviewed against **v2 Battle Royal patch** on 2026-10-09 (package metadata `0.1.0`). The browser entry point uses `BattleRound`: one player and three bots. Legacy duel constructors remain for compatibility scenarios; they are not a selectable lobby mode. See [Release notes](RELEASE_NOTES.md).
 
 ## Runtime boundaries
 
-The application is a static browser client. `index.html` supplies `#app` and `#arena`; `src/main.ts` creates the renderer, sound service, UI, and animation loop. There is no application server, database, network protocol, or saved run.
-
-The structural modules operate on plain TypeScript data without a DOM or WebGL context. `main.ts` orchestrates these rules with input, AI, world positions, and rendering. The offline generator is separate from the runtime import graph: the browser imports its generated JSON through `src/assets/templates.ts`.
-
-| Source | Responsibility |
+| Module | Responsibility |
 | --- | --- |
-| [src/main.ts](../src/main.ts) | Phase state, actors, input, simulation, bot, shots, debris, particles, statistics, diagnostic snapshot |
-| [src/game/types.ts](../src/game/types.ts) | Piece, template, structure, damage, attachment, and random-source contracts |
-| [src/game/config.ts](../src/game/config.ts) | Shared prototype constants |
-| [src/game/structure.ts](../src/game/structure.ts) | Cloning, Core connectivity, damage, repair vacancies, attachment, bounds |
-| [src/game/evolution.ts](../src/game/evolution.ts) | Head/body plans, exact-slot repair and growth, reserve assembly, progress, phase transition |
-| [src/game/pickup.ts](../src/game/pickup.ts) | Eligibility, footprint-based reach, candidate ordering, batching, failed-placement cache |
-| [src/game/movement.ts](../src/game/movement.ts) | Smoothed movement, dash duration/direction/cooldown, arena bounds |
-| [src/game/bots.ts](../src/game/bots.ts) | Bot styles, loot targets, evasion, predictive aim and firing cadence |
-| [src/game/victory.ts](../src/game/victory.ts) | Post-combat attraction, bounded attachment batches, completion and skipped loot |
-| [src/game/debris.ts](../src/game/debris.ts) | Debris render dimensions, floor clearance, spatially indexed pile support |
-| [src/game/collision.ts](../src/game/collision.ts) | First swept segment/circle contact in X/Z |
-| [src/game/rounds.ts](../src/game/rounds.ts) | New runs, victory carryover, opponent queues, spawn ID namespaces |
-| [src/render.ts](../src/render.ts) | Arena, adaptive camera framing, pointer projection, character instances, reserve piles, projectile visuals |
-| [src/ui.ts](../src/ui.ts), [src/style.css](../src/style.css) | DOM screens, roster, HUD, dialogs, responsive presentation |
-| [src/sound.ts](../src/sound.ts) | Local sample fetch/decode/playback, synthesized cues, mute |
-| [src/assets/catalog.ts](../src/assets/catalog.ts) | Character order, names, subtitles, accents, portrait paths |
-| [scripts/generate-templates.ts](../scripts/generate-templates.ts) | Offline PNG-to-template conversion and diagnostics |
-| [scripts/generate-evolutions.ts](../scripts/generate-evolutions.ts) | Export geometry-only body slots from the ten authored prototype models |
+| [main.ts](../src/main.ts) | DOM input, four live actors, fixed-step battle orchestration, shots, debris, elimination, immediate defeat and result flow |
+| [types.ts](../src/game/types.ts) | Pieces, structures, templates, evolution state, damage and attachment contracts |
+| [structure.ts](../src/game/structure.ts) | Face geometry, Core connectivity, random damage/cascades, safe deterministic ammunition detachment, bounds and legacy attachment |
+| [ammunition.ts](../src/game/ammunition.ts) | Transfer a bounded reserve-first batch of safe non-Core inventory parts into one volley |
+| [projectiles.ts](../src/game/projectiles.ts) | Packed real-part volleys, damage from actual count, continuous age, boundary arcs and clear landing search |
+| [battle-combat.ts](../src/game/battle-combat.ts) | Earliest swept contact across eligible hostile actors and remaining cover; independent default for legacy callers |
+| [arena.ts](../src/game/arena.ts) | Procedural buildings, floor-supported demolition, cached remaining footprints, swept movement/shot cover |
+| [movement.ts](../src/game/movement.ts) | Normal movement, arena bounds, dash duration and recharge |
+| [bots.ts](../src/game/bots.ts) | Styles/opening tiers, bounded preparation, hunting/finishing/recovery goals, cover clearing/flanking and threat evasion |
+| [bot-squad.ts](../src/game/bot-squad.ts) | Round alliances, shared hostile targets, attached-health hysteresis and immediate attack-slot replacement |
+| [rounds.ts](../src/game/rounds.ts) | Battle participants, last survivor, fallen reserves, exact continuation, opponent queues; retained duel APIs |
+| [evolution.ts](../src/game/evolution.ts) | Immutable plans, repair/build frontier, reserve assembly and phase transition |
+| [rune.ts](../src/game/rune.ts) | Combat-time center rune, deterministic contact winner and one-time installed palette restoration |
+| [pickup.ts](../src/game/pickup.ts) | Settled/age eligibility, all-owner fired lock, proximity-based contested batches |
+| [debris.ts](../src/game/debris.ts) | Render dimensions, landing height and spatially indexed pile support |
+| [victory.ts](../src/game/victory.ts) | Bounded reward attraction/collection and assembly, fired lock, phase transition and completion |
+| [render.ts](../src/render.ts) | Instanced characters/buildings/debris, exact-part projectile visuals, camera, pointer projection and stock trays |
+| [ui.ts](../src/ui.ts) | Lobby, aligned player/stock and action columns, native shot-count control, pause/reward/results |
 
-## Data model and coordinates
+Pure game modules have no DOM or WebGL dependencies. The renderer uses Three.js; the entry point connects rule functions with views and input.
 
-`Vec3` contains numeric `x`, `y`, and `z` fields. Piece coordinates are local minimum corners in stud units; `size` contains positive dimensions along the same axes. Actor positions use world X/Z coordinates. Attached geometry is normally scaled by `CONFIG.characterScale = 0.5`; the lobby preview uses scale 1.
+## State and coordinates
 
-| Type | Fields and role |
-| --- | --- |
-| `Piece` | `id`, `position`, `size`, `color`, and `shape` (`brick`, `plate`, `tile`, or `slope`) |
-| `CharacterTemplate` | `id`, `name`, `subtitle`, `accent`, `coreId`, `pieces`, and provenance `source` URL |
-| `Structure` | `pieces: Map<string, Piece>`, `coreId`, legacy `vacancies: Piece[]`, `revision`, `roundStartPieces`, `coreExposed`, optional `evolution` |
-| `EvolutionPlan` | Path `id`, `stage` 2 or 3, `neckY`, `headCount`, immutable `slots`, and face-adjacency `neighbors` |
-| `EvolutionState` | Path/stage/template/plan, `occupied` slot IDs, `everBuilt` slot history, `reserve` parts, and `reserveRevision` |
-| `DamageResult` | Distinct `direct` and `cascade` piece arrays plus `eliminated` |
-| `AttachmentResult` | Collected `piece` and `mode: repair`, `growth`, or `bank`; bank mode does not change attached geometry |
-| `RoundState` | Number, selected player/enemy templates, both structures, remaining opponent IDs, `enemyBehavior`, and `enemyDifficulty` |
-| `PickupState` | Last `ownerId` or `null`, simulation `age`, and `settled` |
-| `DashState` | Active burst time, recharge time, and locked planar direction |
-| `BotState` | Behavior style/difficulty, current tactic, decision/wander timers, movement direction, dodge duration, and dodge cooldown |
-| `BotAction` | Movement/speed, aim, firing decision/interval, dodge flag, and sniper panic flag |
-| `VictoryCollection` | Pending drop references, elapsed reward time, total/collected/skipped counts, and `evolutionChecked`/`evolved` flags |
+A `Piece` is one axis-aligned box with ID, local minimum-corner position, dimensions, color, and shape. Pieces remain distinct inventory objects through firing, damage, pickup, assembly, and banking. Ordinary transfer preserves color; a collected rune intentionally changes installed colors without changing identity or geometry. A `Structure` holds an attached map, Core ID, revision, round-start baseline, exposure flag, and optional evolution state.
 
-`Actor`, `Shot`, `Drop`, `Particle`, and `Stats` are private runtime interfaces in `main.ts`. Actors combine a structure with a `CharacterView`, planar position/velocity, cooldown, hurt feedback, and cached bounds. Shots reference their owner and track planar motion, lifetime, and mesh. Drops retain the detached piece and add ownership, age, falling height/velocity, and rotation.
+Local character/building geometry is in studs; rendering and collision multiply by `CONFIG.characterScale = 0.5`. Actor/building X/Z coordinates and projectile motion are world units. Character presentation offsets its lowest attached Y to ground level. Movement and combat are planar; actor collision is a circle, while building collision follows the remaining axis-aligned brick footprint.
 
-There is no shared `attached/flying/falling/ground` enum on `Piece`. Membership in the structure, drop array, or reserve, together with `settled` for drops, expresses that lifecycle. Projectiles are not body pieces. A legacy vacancy is an empty geometric box stored using the `Piece` shape; it is not a collectible object or a required original piece identity. Evolved actors repair exact blueprint slots instead of accumulating those vacancy boxes.
+`BattleRound` contains the number, selected player/template, four `BattleParticipant` records, and an opponent queue. Each participant has a stable actor ID (`player`, `bot-1` through `bot-3`), its template/structure, and optional bot style/difficulty. Fresh pieces receive round/actor namespaces. Buildings receive `arena-round-N/building-M/piece-K` IDs. Player survivor IDs stay intact across continuation.
 
-`createStructure()` deep-copies positions and sizes, validates finite positive geometry and unique nonempty IDs, and requires the Core ID to exist. It does not validate all overlaps or initial connectivity. The supplied assets are checked separately during generation and by tests.
+`PartProjectile` owns an array of 1–20 exact removed pieces, actual-count damage, packed collision radius, owner ID, world position/velocity, continuous age, mode (`shot` or `rebound`), and settlement state. Its `piece` alias remains the first part for older handwritten fixtures. One volley resolves one nearest contact and becomes separate drops preserving every part and the shared age. `lockedUntilAge = 5` identifies fired-part recovery rules.
 
-## Phase and round lifecycle
+The read-only `window.__arenaSnapshot` summarizes fighters, alive count, placement, winner, building revisions/counts, projectile-group counts, shot-count setting, rune clock/state, drops, combat events, input, statistics, and draw calls. Its `mass` counts attached parts, all stock, standing buildings, world drops, and all active projectile parts. It is a QA diagnostic rather than a save/control API.
+
+## Battle and phases
+
+`newBattleRound()` creates the selected player and three fresh bots. `beginRound()` resets prior views, input, shots, debris, rune availability/clock, timers and statistics; spawns four corners at ±36% of arena width/depth; generates the 160 × 160 map; and seeds 24 opening drops.
+
+`battleWinner()` returns a participant only when exactly one Core survives. `playerBattleOutcome()` separately returns defeat as soon as the player's Core is absent, or victory when the player is the sole survivor. `releaseEliminatedReserve()` drains a fallen inventory once into contested world loot. Bot elimination stops that actor; player elimination immediately enters `result`, clears held input and freezes simulation. Placement remains diagnostic data; the defeat UI shows no placement or invented winner.
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Lobby
-    Lobby --> Playing: Start / newRound
-    Playing --> Paused: Pause / blur / hidden tab
-    Paused --> Playing: Resume
-    Playing --> Collecting: Enemy Core destroyed
-    Collecting --> Paused: Pause / blur / hidden tab
-    Paused --> Collecting: Resume collection
-    Collecting --> Result: All loot processed and minimum duration elapsed
-    Playing --> Result: Player Core destroyed
-    Result --> Playing: Victory / nextRound
-    Playing --> Playing: R / newRound
-    Collecting --> Playing: R / newRound
-    Paused --> Playing: Restart / newRound
-    Result --> Playing: Restart / newRound
-    Paused --> Lobby: Choose character
-    Result --> Lobby: Choose character
+    [*] --> lobby
+    lobby --> playing: Start
+    playing --> paused: Pause or focus loss
+    paused --> playing: Resume combat
+    playing --> collecting: Player is last survivor
+    playing --> result: Player Core destroyed / immediate defeat
+    collecting --> paused: Pause or focus loss
+    paused --> collecting: Resume collection
+    collecting --> result: Loot and assembly complete
+    result --> playing: Next Round after player win / Start Over
+    result --> lobby: Choose Character
 ```
 
-`showPreview()` clears the run and creates a base-character preview. `beginRound()` clears old views, projectiles, debris, particles, held keys, and firing state; creates both actors; resets fight statistics and simulation time; and seeds 24 neutral drops.
+At either outcome every active projectile becomes a drop with its continuous fired age and `lockedUntilAge = 5` preserved. Lethal player damage exits further combat processing immediately, preventing later contacts or timers from advancing. The result freezes actors, drop ages, rune time and inputs even if several bots remain. A winning player instead enters loose reward collection; standing buildings stay standing and are excluded from rewards.
 
-`newRound()` validates the roster, clones both base structures, and creates a shuffled opponent queue excluding the selected character. Spawned IDs are namespaced, for example `round-1/player/violet-0151` and `round-2/enemy/flare-0000`. Both round constructors call `botForRound()`: round 1 assigns `balanced/easy`, round 2 assigns `balanced/medium`, and later rounds independently sample one of four styles at `normal` difficulty. Styles may repeat; the character queue's no-repeat rule is separate.
+`nextBattleRound()` requires the player to be the winner. It deep-copies the survivor, evolution occupation/history and reserve; resets the Core baseline/revision; and creates three fresh base opponents with new namespaces. The entry point regenerates the map and resets motion, cooldowns and statistics. Restart creates round 1 from the base head. Settings remain page-local; reload loses the run.
 
-The live entry point always passes the selected evolution to `newRound()`. `enableEvolution()` translates the head to the blueprint's neck height, marks its slots occupied/previously built, and leaves body slots and reserve empty. The enemy receives an independently random evolution. The round API can omit evolution for legacy tests; this is not a selectable live game mode.
-
-`nextRound()` requires the player's Core to exist and the enemy's Core to be absent. It deep-copies attached pieces, legacy vacancies, occupied-slot IDs, built-slot history, and every reserve piece; the immutable plan/template can be shared. It preserves the Core and stage, resets the structure revision, and sets a new protection baseline from the attached piece count. It creates a fresh base enemy with a new round namespace, random evolution, and empty reserve. Queue reshuffling avoids a repeat across cycle boundaries.
-
-Damage power, mute, and the selected evolution are page-level variables. They survive new fights and lobby transitions. The selected template remains the basis for restarting and for excluding opponents, even when the survivor contains foreign pieces. Restart creates the selected head with no earned body or reserve; returning to the lobby discards the run.
-
-`GameUI` also retains the selected card and roster page across screen transitions. Pagination only changes visible cards. Selecting a card changes the preview; it does not start a fight. Returning to the lobby resets its scroll position but does not reset those selections or the synchronized damage sliders. Reloading reconstructs run state and settings from defaults.
+`newRound()`, `nextRound()`, and `RoundState` are retained duel APIs used by older structural/progression tests. They do not define the current main-loop roster.
 
 ## Simulation and input
 
-`requestAnimationFrame` measures wall-clock time and clamps each frame delta to 0.1 seconds. An accumulator runs `tick(1 / 60)` at a fixed simulation step. Rendering runs once per animation frame and the DOM HUD refreshes approximately every 0.15 seconds. There is no interpolated physics frame or deterministic replay system.
+The RAF loop accumulates fixed 1/60-second simulation steps; frame delta is capped at 0.1 seconds. Pause returns before simulation-time updates. Each combat step updates cooldowns/bounds, projects aim, moves the living player and bots, resolves cover continuously, separates living actors, handles nearest projectile contacts, checks the player outcome, then advances debris and eligible collection only if combat is still active.
 
-While playing, each tick:
+Movement is smoothed, normalized and arena-clamped. Base player speed is 19.8375 and base bot speed is 15.20875 before difficulty modifiers, a 15% increase over the preceding build for both normal movement and dash. Space requests one direction-locked 0.18-second dash at 3.3 times speed, with a 2.4-second recharge. The pre-movement position is passed to `resolveArenaBuildings()` so fast movement cannot cross a wall between frames. Inward velocity is removed while parallel motion slides along faces. Cover resolution is repeated after actor separation. Growth depenetration refreshes nearby boxes after each displacement and respects arena bounds. If local pushes cannot resolve overlap, it verifies the reserved center, moves there, and stops velocity. Repeated stationary resolution then remains stable.
 
-1. Advances elapsed time, cooldowns, and hurt timers; refreshes actor bounds if a structure revision changed.
-2. Projects pointer aim, starts a requested dash when ready, moves the player, and fires if the button is held and cooldown permits.
-3. Updates the bot and separates overlapping actors, then clamps them to arena bounds.
-4. Advances projectiles and resolves swept hits; a lethal hit ends active combat immediately.
-5. Advances debris physics, runs automatic pickup, and retries bounded reserve assembly for both living fighters if still playing.
+Pointer picking targets a living actor's planar center when its body is hit; a building hit uses its world cover geometry, and other pointers project onto the aiming plane. Mouse and touch drive the same aim/fire path. Physical key codes preserve bindings across keyboard layouts. Blur/hidden-tab pause clears held input; input fields and menu activation retain normal keyboard behavior. `onShotCountChange()` updates a page-local requested batch size, default 1. The native 1–20 range stops gameplay pointer/keyboard propagation while retaining normal range keys; `onDash()` provides an accessible touch/mouse button. The action panel is disabled outside live player combat.
 
-Pause returns before simulation time advances and resumes the prior combat or collection phase. Victory freezes fight time, clears shots, and runs `stepVictoryCollection()` until remaining drops, available reserve assembly, and the evolution check/rebuild are finished and the minimum celebration duration has elapsed. Normal drop physics and ownership timers do not govern this reward stage. The result phase advances any rejected debris without collecting it. Drawing still runs in all phases; particle updates are suppressed during pause. Toast removal uses a wall-clock DOM timeout and is independent of simulation time.
+## Ammunition, contact and recovery
 
-Movement normalizes nonzero input and exponentially smooths velocity. Collision radius uses 44% of the largest horizontal span after character scaling, with minimum and arena-size caps. Pickup uses a separate radius based on the farthest absolute X/Z extents plus reach, so the two radii serve different purposes.
+`takeAmmunitionBatch()` requests up to 20 real pieces by repeating `takeAmmunition()`, which transfers the first eligible reserve part, excluding the designated Core. With no stock, `detachAmmunitionPiece()` uses a deterministic graph-derived safe order that removes one non-Core piece without disconnecting survivors. It invalidates geometry/slot caches, records the vacated slot, and can expose the Core. Firing has no damage cascade. A bare Core cannot fire. A shortage returns a smaller batch; damage is exactly its length, so no independent power setting can outpace spent inventory.
 
-Shots start at the shooter's X/Z center with visual height Y = 3.2. The origin does not move outward with the actor's radius, so growth cannot spawn a shot beyond a nearby opponent. Shots are checked against the opponent only. `segmentCircleHit()` returns the first contact fraction from 0 to 1, or `null`. It handles initial overlap and zero-length segments. It sweeps the shot against the target's current center, not a full moving-target trajectory.
+Each shot group keeps every source ID, dimension, color and shape. Deterministic compact offsets pack the mesh parts without resizing them; swept radius derives from the packed horizontal extent. `firstBattleImpact()` compares cover contacts and live non-owner actor-circle contacts and chooses the earliest fraction. Equal actor/cover contacts favor cover. Actor damage uses the existing random eligible batch and Core cascade; terrain damage uses local impact selection and floor connectivity.
 
-Pointer rays use the actual canvas rectangle. A ray hitting the opponent's instanced body maps aim to that actor's planar center; otherwise it intersects the Y = 3.2 aiming plane and is clamped to the arena. Rendered yaw and individual brick geometry do not define projectile collision.
+After one impact every spent part becomes its own debris drop with its packed offset. A missed shot reaching a boundary switches to a ballistic transport arc; this mode cannot damage actors/buildings. It selects a clear interior footprint, tries a deterministic fallback search, and retains the part airborne if no safe target exists. No lifetime timeout deletes inventory.
 
-### Browser input routing
+Projectile age runs continuously from firing through impact, rebound and landing. All collectors require a fired part to settle and reach age five. The lock persists in victory collection. Ordinary damage debris instead uses the 0.8-second shared age and five-second last-owner combat delay.
 
-The window key handlers store `KeyboardEvent.code` values, so controls follow physical key positions across keyboard layouts. The lobby bypasses game shortcuts. Events targeting `input`, `select`, or `textarea` also bypass them; Space/Enter on a `button`, `a`, or `summary` retain native behavior. Otherwise WASD, arrows, and Space suppress default browser behavior. Repeat events can maintain the held-key set but cannot activate another dash, pause, restart, or mute action.
+## Color rune
 
-Only a left-button `pointerdown` on the canvas while playing starts fire and attempts an immediate shot. Window-level `pointermove` updates aim, and `pointerup` clears firing even outside the canvas. Pause, blur, and round cleanup clear held keys, firing, and queued dash input. `beginRound()` and resume focus the canvas. R restarts from any non-lobby phase; P/Escape only toggle playing/collecting and paused; M works outside the lobby subject to the focus guards above.
+`RuneState` tracks combat elapsed time, the next 30-second interval, availability and spawn/collection counts. `stepRune()` is called only during live combat; pause, immediate defeat, result and collection phases freeze this clock. An available rune remains until collection and additional intervals do not stack cubes. `collectRune()` filters living fighters touching center within body radius plus 2.5, then picks nearest center distance and actor ID deterministically.
 
-## Dash and bot decisions
+`restoreModelColors()` paints installed slots once per pickup. Head slots use the selected original head palette; body slots use `evolution-colors.generated.json`, exported from authored zones with dark clothing, silver details and a path accent. Only piece colors and the render revision change. Core state, IDs, sizes/positions/shapes, missing slots, stock, drops and shots are preserved. Future loot keeps its own color. The center cube has a separate renderer group and is reset with each new battle.
 
-`movement.ts` separates movement math from DOM input. Space queues a single dash request; key-repeat events do not queue additional bursts. Activation normalizes movement input or falls back to aim, locks that direction for 0.18 seconds, and starts a 2.4-second recharge. Burst speed is 3.3 times normal player speed. Arena clamping still applies, firing remains available, and no invulnerability flag is set. Each new fight creates fresh dash state.
+## Procedural cover
 
-`bots.ts` exposes four styles: `aggressor`, `collector`, `sniper`, and `balanced`. `BOT_DIFFICULTIES` adjusts decision intervals, movement speed, firing intervals, aim spread/lead, and dodge probability. Decisions refresh every 0.42 seconds on easy, 0.24 on medium, or 0.12 at normal difficulty. Wandering targets refresh every 2–4 seconds. Aggressors prioritize closing distance and nearby loot; collectors score eligible loot by distance and enemy risk; snipers seek distance, strafe, and predict player motion. Full-strength sniper panic shortens the firing interval to 0.12 seconds, including the current runtime shot cooldown when necessary.
+`generateArenaBuildings(random, roundNumber)` mixes walls, tall hollow towers, ragged ruins, stairs and arches. Dimensions, heights, quarter-turn orientation, brick packing, colors and world placement vary. Twenty buildings form peripheral clusters between four diagonal spawn-to-center routes. Each route reserves a radius of 26 (width 52), clearing the largest authored 24.2-radius full form with margin. Radius-expanded segment checks reserve the whole connection and spawn endpoint, so the center is a safe growth fallback. Pieces use compatible small 1–2 stud footprints and 0.4/1.2 heights.
 
-The Balanced style chooses a new tactic when its wander timer refreshes: collect with probability 0.35, approach with probability 0.30, or strafe with probability 0.35. Collection considers eligible pieces with a distance-plus-risk score below 24 and only pursues them when the player is beyond `contact + 4`. Without such a target, it approaches/strafe-retreats around a medium range. Its base firing interval is `CONFIG.botShotInterval`, without sniper panic.
+Construction is anchored to every brick touching local Y = 0. Its structural Core field is only a reference; it has no actor exposure/elimination behavior. `damageArenaBuilding()` removes an impact-local patch, traverses from all surviving floor bricks, drops unsupported sections, increments revision, and updates bounds. Grounded fragments remain independently supported.
 
-Collectors, snipers, and Balanced bots examine approaching projectile trajectories up to 0.7 seconds ahead and can dodge for 0.28 seconds. A wall check can reverse the dodge direction. Easy difficulty disables dodging; medium allows a detected-threat attempt with probability 0.55; normal allows it whenever eligible. Balanced bots set a 1.1-second retry cooldown when detecting a threat, even if the probability check rejects that attempt. Aggressors never dodge. Base bot speed is multiplied by 1.12 for aggressors or by 1.22 during evasion, then by the difficulty speed factor. `main.ts` applies the resulting movement, aim, and firing decisions to live actors; rule tests exercise these decisions separately from browser input and rendering.
+Collision unions deduplicate projected bricks and merge rectangles only when their union is rectangular, preserving holes. Footprints are cached by structure revision. Face graphs are created lazily on first damage and reused across removal. Sweeps use box faces and round corners for actual circle geometry. Demolished openings affect movement, dash, projectile and bot line-of-fire queries.
 
-Behavior distances use `contact = 0.8 * (player.radius + enemy.radius)`. Collector retreat starts below `max(18, contact + 8)`; sniper preferred range is `max(28, contact + 12)` and panic starts below `max(15, contact + 5)`. This lets the same rules react to larger builds. All bots receive passive pickup through the shared collector loop, even when their movement does not target loot. They never invoke `startDash()`.
+## Bots, pickup and victory
 
-Aim prediction uses `min(0.85, distance / projectileSpeed)` seconds, multiplied by 1 for snipers or 0.55 for other styles, then by the difficulty lead factor. Base oscillating X/Z spread has amplitude 0.8 for aggressors, 1.8 for collectors, 1.3 for Balanced bots, and 0.3 for snipers; panic reduces the sniper base spread to zero. Difficulty spread is added afterward. These offsets describe the current aiming heuristic, not guaranteed accuracy. Style parameters, difficulty factors, and firing ranges are documented in [Development](DEVELOPMENT.md).
+Opening tiers are preserved: easy Balanced bots in round 1, medium Balanced in round 2, then independently sampled full-strength styles. `coordinateBotSquad()` runs once before the bot loop, issuing read-only orders. Round 1 has four independent teams; round 2 allies bot-1/bot-2 with a shared hostile target and three-second commitment; from round 3 every bot allies against the player. The main loop filters allied opponents and projectile threats. `firstBattleImpact()` accepts an optional hostility predicate, preserving the independent default for older callers; the runtime also guards `hit()` against allied damage.
 
-## Victory collection
+From round 4 the squad keeps two healthy attackers and one collector, with different attack flanks. Attached count at or below 65% of its actual attained peak triggers recovery; a healthy collector replaces the attacker in that same decision. At 90% restored count, recovery ends without displacing a stable healthy pair. Peak excludes reserve, and permanent Core exposure alone cannot trap a repaired bot in recovery. Dead members are removed, and round/time/structure resets clear old decisions. Coordination changes no inventories or exposure flags.
 
-Live fighters use `evolution.ts`; see [Evolution and reserve](EVOLUTION.md). `collectPiece()` routes loot to exact repair/body slots or reserve. `assembleReserve()` retries stored parts. At the end of victory collection, `advanceEvolution()` can rebuild the phase-3 body, then stock assembly drains before the result. Evolution state contains the immutable plan, occupied-slot IDs, repair history, stage, reserve, and reserve revision. Both body and reserve are copied on Next Round. Bots start with fresh heads and empty reserves.
+Resource preparation ends after gaining four reserve parts, six net parts, or six combat seconds. Explicit intents (`prepare`, `hunt`, `finish`, `recover`, `collect`, `harvest`, `clear`, `flank`, `evade`) make the current decision observable. `thinkBattleBot()` accepts an optional squad order after its compatible random argument; it scores hostile opponents for vulnerability, proximity and visibility, respects shared targets and priority roles, evaluates exact-size repair/growth stock and danger, harvests cover for resources, and routes around the exact union of surviving brick footprints, including demolished gaps. Footprint geometry is cached by revision; a cached sparse visibility graph connects expanded footprint corners with arena-edge/center anchors. Bounded neighbor discovery and memoized visibility keep repeated detours manageable, while graph stamps include the current body radius and footprint signature.
 
-On a win, `finish()` clears projectiles, stops actor motion and the player's dash, freezes combat time, transfers the defeated enemy's reserve into the drop array just beyond the arena's right edge, empties that reserve, and creates a `VictoryCollection` over all current drops. `stepVictoryCollection()` uses a separate elapsed timer; ordinary drop physics and age updates stop during this phase.
+Movement edges use swept clearance for the whole body radius. With ammunition, the bot checks the attack line for actual shot-blocking cover and can shoot the first obstruction even when a route exists; reaching a safe route proxy is insufficient if the rival remains hidden. When no shot obstruction exists but routing fails, a separate body-width query identifies cover that leaves a shooting lane too narrow to traverse. Loot approaches target reachable points inside the pickup circle, including precise boundary approaches; missing or stalled approaches are deferred for eight simulation seconds or until cover revision changes. Routes refresh with goals, footprint changes or radius changes, and preserve a 0.1-unit arena-edge margin, with stuck recovery and threat evasion. The older duel decision API remains testable compatibility code.
 
-After 0.3 seconds, pending pieces move toward `(player.x, 2.5, player.z)` at an increasing speed of `35 + elapsed * 32`. Pieces within 0.8 world units are processed up to 16 per step. Combat pickup eligibility is bypassed. Body and bank pickups both remove world drops; invalid pieces are skipped. A defeated fighter cannot collect. For evolved fighters the attachment cap does not block banking.
+Hunting uses a short target lock, with immediate switching for decisive finishing chances and deferral of stale or unreachable targets. Worthwhile loot approaches have their own lock; automatic pickups already in range do not divert an ongoing hunt. Scarce stock can favor a cheap local flank before spending it on cover. Moving targets receive interception aim, and packed shot radius is checked against the actual opening before firing.
 
-Each step also allows up to 16 reserve attachments, separately from its 16 incoming-drop attempts. When pending drops are exhausted and an assembly pass makes no more placements, `advanceEvolution()` checks the phase-2 body fraction once. At 85% or above it preserves surviving head slots, returns body pieces to stock, selects the larger plan, and retries assembly on following steps. Completion requires no pending drops, no further placements in that pass, the completed evolution check, and at least 2.4 seconds elapsed; unused reserve is allowed. Bounds are refreshed as the winner grows. Next Round copies the survivor and reserve. Defeat skips this reward phase entirely.
+Bot attack batches account for available safe ammo, target hit confidence, health, finishing opportunities and incoming volleys. A stocked bot does not spend body pieces merely to fill its desired batch. Threat scoring uses actual packed projectile width and viable incoming contacts. Pressure-driven retreat reports `evade`; longer engagements apply bounded pressure so resource gathering cannot indefinitely postpone attack.
 
-Collection counters include parts accepted into either body or reserve. Repair/growth statistics count placements, not stock transfers; phase-3 rearrangement is excluded from new-piece statistics. The victory progress bar can reach 100% while reserve assembly or evolution is still running.
+Each bot owns a `DashState`. AI requests require readiness and a complete cover/edge-safe segment; `moveDashingBody()` shares the player's direction-lock, 0.18-second duration, 3.3 multiplier and 2.4-second recharge with a supplied movement speed. Continuous building resolution follows movement. Pause freezes all dash states; elimination/results stop active bursts, and restart recreates them. Later stocked combat, or non-collector/non-recovering body fire at health ≥68% or a viable finishing blow, can request a 0.23-second shot interval. Body batch budgets remain unchanged. `fire()` enforces that minimum for everyone without panic-based cooldown resets. Snapshot fighters expose team, role, desired/actual shot count, shot and dash counters, and independent dash state for browser QA.
 
-## Evolution plans and reserve
+All living fighters use one nearest-first contested pickup scheduler with at most eight world pickups and a separate bounded stock assembly pass per step. Eligibility respects landing, age, ownership and fired locks. Valid pieces without an exact connected plan slot are banked. Dead fighters cannot collect. Spatial pile support keeps landed debris from occupying the same rendered height.
 
-`evolutionPlan()` combines the selected head with geometry-only body slots from `src/assets/evolutions.generated.json`. It removes slots overlapping the chosen head and slots no longer reachable from it, then caches the immutable face graph. Each combination can therefore have a slightly different body target. Five paths and two body phases support all 17 heads.
+Victory attraction processes up to 16 incoming and separately 16 reserve parts per step. Ordinary debris bypasses combat eligibility; fired parts still require settlement and age five. Pending drop ages continue during collection. Once loot and stock assembly finish, an eligible phase-2 body can rebuild into phase 3 using existing parts. Result waits for completion and the 2.4-second minimum. See [Evolution](EVOLUTION.md).
 
-`frontier()` tracks currently empty slots next to occupied slots, indexed by exact X/Y/Z dimensions. Previously occupied slots go into repair buckets; never-built slots go into growth buckets. It refreshes occupancy after damage using the structure revision. `place()` tries matching repairs before matching new slots and calls `attachAt()` to validate actual geometry/Core contact. Color and incoming shape do not select a slot and are preserved. No cutting, resizing, rotation, or alternate tiling is performed.
+## Rendering and limits
 
-`collectPiece()` installs the part when possible. A valid unplaceable piece is cloned into the reserve with a nonconflicting ID, increments `reserveRevision`, and returns bank mode. `assembleReserve()` indexes stock by dimensions and reuses the repair/growth frontier, placing at most 8 pieces per combat step by default. This budget is separate from the 8 incoming pickups. Unchanged geometry and stock are not rescanned after an unsuccessful pass; exhausted budgets permit work on the next step.
+Characters and neutral buildings use instanced brick views; buildings hide actor Core/ring decoration. Projectile meshes contain every real part in one compact group. Multi-part group orientation stays fixed so packed offsets agree with collision and landing geometry; single-part visuals may spin. Debris/character buffers expand without truncating logical inventory. The player Backpack shares the arena WebGL context and samples up to 240 parts; its count remains exact. Its container/stage are transparent so the shared scissor-rendered model remains visible behind the DOM; only its header/footer have opaque white backgrounds.
 
-`evolutionProgress()` counts currently occupied body slots, excluding the head and reserve. Stage 2 means its body plan is active even when only the initial head is present. Phase 3 is the final plan. `advanceEvolution()` resets body-slot history for the new plan, conserves actual body/stock pieces, and never creates missing head parts or rearms current-round Core protection.
+At viewport widths above 1280 pixels and heights of at least 600 pixels, desktop HUD columns use equal `clamp(280px, 17vw, 336px)` widths and equal heights anchored to the projected outer arena base. Both use 44/56 card rows with an upper minimum of 280 pixels, reduced to 260 pixels at widths 1281–1440. Segoe UI/Arial numbers are 52–60 pixels, headings 24–28 and captions 16–18. Player build/Core and evolution/repair/growth sit above Backpack; DASH sits above the 1–20 parts control. Rival stock/cards, time/round/alive counters and pickup-report toasts are absent. Repair/growth totals remain in the player card. Smaller windows use compact columns; portrait keeps a 76-pixel Backpack preview, while short touch landscape and fine-pointer windows at heights of 500 pixels or less show its header/count. The short fine-pointer layout starts at Y = 64.
 
-## Structural geometry and caches
+Camera framing includes living actors and remaining cover. `resize()` reads canvas CSS dimensions and horizontal sidebar/action bounds; HUD top/height do not feed camera framing. `frame()` updates the stable camera pose and world matrix, projects the outer base corners, then publishes half-pixel-rounded `--arena-hud-top` and `--arena-hud-height` only when they change. Camera shake is applied afterward, so it does not move the HUD. Compact/preview layouts remove those anchors. Resize refreshes pixel density with a 1.75 DPR cap; CSS coordinates and shared stock scissor rectangles remain in CSS pixels.
 
-`structure.ts` treats every shape as an axis-aligned box. Intersections require positive overlap on all axes; connections require one shared face and positive overlap on the other two axes. Comparisons use `EPSILON = 1e-6`. Shape metadata does not alter structural collision.
-
-A `SpatialIndex` uses 2-stud buckets for local neighbor queries. Pieces spanning more than 512 buckets go into a separate large-piece list; queries spanning more than 4,096 buckets fall back to scanning the indexed pieces. This limits bucket allocation for unusually large geometry.
-
-A module-level `WeakMap` caches the Core-connected component per structure revision and creates a spatial index only when needed. For an evolved body, connectivity traverses the immutable blueprint face graph after checking that every attached ID occupies exactly the recorded slot coordinates and dimensions. Any unmapped, duplicate, or displaced piece falls back to spatial traversal, including sub-epsilon offsets that can change actual face contact. `connectedToCore()` returns a copy of the cached ID set. A bounded cache retains up to 12 prepared head/body plans. Phase transition places surviving head pieces at their exact new plan coordinates to avoid accumulated floating-point drift.
-
-Changes must keep `revision` and cached geometry consistent. Use the structural APIs instead of directly changing map entries or nested positions: direct mutation without invalidation can leave connectivity, bounds, and rendering stale. Damage invalidates or refreshes its caches; attachment incrementally extends the index and connected set.
-
-## Damage and attachment APIs
-
-`damageStructure(structure, power, rng)` sanitizes finite power to a nonnegative integer and caps it by the eligible piece count. It samples without replacement, removes the whole direct batch, computes the Core component, detaches the remainder, records vacancies for legacy structures without evolution, and increments the revision once for a nonempty operation. Evolved structures retain built-slot history for exact repairs.
-
-Core eligibility is captured before removal. Exposure uses `max(1, floor(roundStartPieces * (1 - coreProtectionLoss) + EPSILON))` and is sticky for the rest of the fight. Missing Core means an empty connected component and elimination. Zero/invalid power leaves an otherwise unchanged structure at the same revision.
-
-`attachPiece(structure, incoming, rng)` is the legacy free-growth API used by experiments and its existing tests. It searches shuffled compatible vacancies and faces. Live evolved actors use `collectPiece()` and `attachAt()` to preserve the planned silhouette. The latter validates a prescribed slot against the spatial index and extends cached connectivity.
-
-Both attachment APIs avoid solid overlap and require contact with the Core-connected component. Successful attachment clones the incoming piece, keeps or suffixes its ID, increments the revision, and extends cached connectivity. Legacy `attachPiece()` also rejects placements below local Y = 0 and subtracts occupied volume from vacancy boxes; adjacent vacancies merge only when they form an exact rectangular union, and partial repairs leave rectangular fragments. Planned placement uses the authored nonnegative slot positions and tracks repairs through slot history instead of vacancy subtraction.
-
-`attachPiece()` and `attachAt()` themselves have no 16,000-piece cap. Evolved placement enforces it in `evolution.ts`, while `collectPiece()` can still bank valid loot at the cap. `collectNearbyDrops()` and `stepVictoryCollection()` enforce the cap directly for legacy structures without evolution. Tooling that calls low-level attachment APIs directly is responsible for its own capacity policy.
-
-## Pickup scheduling
-
-`collectNearbyDrops()` builds eligible drop/collector pairs within each collector's radius, sorts by squared distance, and processes them with per-collector batch counts. A set prevents duplicate collection. It compacts the ground array once after successful repair, growth, or bank results.
-
-Failed placements are cached in a nested weak map keyed by drop, structure, and revision. Unchanged geometry does not repeatedly retry the same rejection. Ownership, age, Core existence, and the live piece cap are checked separately. Candidate distances/radii are a snapshot for that call; growth affects the next bounds refresh.
-
-There is no explicit tie-break rule beyond candidate enumeration/stable sorting. Do not depend on equal-distance contested pickups as a fairness mechanism.
-
-## Rendering, UI, and audio
-
-`CharacterView` uses separate instanced meshes for boxes and studs. It rewrites instance matrices/colors only when the structure revision changes. Capacities start at 512 bodies and 2,048 studs and grow to the next power of two. Tiles and slopes omit studs; all bodies use box geometry, so stored slopes do not produce curved slope meshes. The current Mini assets contain bricks, plates, and tiles.
-
-Detached pieces are boxes in one instanced mesh, starting with capacity 1,024 and growing to a sufficient power of two. Rendering capacity never discards logical loot. Replaced instance buffers are disposed; an oversized buffer is released on round reset. Falling pieces use a spatial index of settled footprints and stop on the highest overlapping support, so debris forms shallow piles instead of occupying the same plane. Settled drops reuse cached transforms and colors, while moving or compacted entries update the affected GPU buffer ranges. Hit/pickup/result particles use another instanced mesh with capacity 500; spawning stops at 450 active particles.
-
-Character synchronization writes affine matrices directly, reuses parsed brick colors for studs, and derives conservative body bounds in the same pass. Body picking first rejects missed axis-aligned brick boxes in mesh-local space, then retains Three.js's exact triangle test for surviving candidates. Tests compare its intersections against the original instanced raycast. Renderer statistics reset before the frame and aggregate the arena, shadow work, and both stock previews.
-
-`ArenaRenderer` owns the combat orthographic camera, lights, arena meshes, pointer projection, and hit shake. `fitCombat()` uses actual attached height and actor depth to shift the camera target and enlarge its vertical framing; `resize()` subtracts visible reserve-panel insets when fitting arena width. `CharacterView` offsets geometry by its lowest attached Y, so the starting head sits on the ground and rises as parts fill downward. Lobby framing uses a separate target/scale. Device pixel ratio is capped at 1.75. The UI reparents the same canvas; `ResizeObserver` and window resize events update its size. The inventory trays share the same WebGL renderer.
-
-`ReserveView` owns a separate scene and orthographic camera for each Backpack/Rival stock tray, drawing through the arena's existing WebGL renderer with DOM-aligned viewports and scissor rectangles. It samples up to 240 actual inventory pieces and updates on state/reserve-revision changes, while the full inventory remains in game state. Tray framing uses the sample bounds; the main viewport is restored after both previews render. The UI shows exact counts, empty-state copy, and a sample-size label above 240 parts. At widths below 1,100 pixels or heights below 700 pixels, CSS hides the trays and leaves compact counters. These are noninteractive inventory views, not arena collision or pickup objects.
-
-`GameUI` creates DOM markup once and delegates events to callbacks. It manages screen visibility, six-item roster pages, focus cycling in dialogs, selected-card state, sliders, and toasts. There is no UI framework, router, or localization layer. Most strings live in `ui.ts`, with additional messages in `main.ts`, bot labels in `bots.ts`, metadata in `index.html`, and subtitles in the catalog.
-
-`setScreen()` reparents `#arena` between the lobby preview and root, updates its tab index, and marks the top bar inert during pause/results. The HUD remains present behind those modal overlays. The collecting screen adds reward progress and hides dash/toast displays through CSS. Result rendering makes Next Round hidden/disabled on defeat and promotes Restart to the primary button; focus moves to the visible enabled primary action on the next animation frame. Tab/Shift+Tab cycle between visible modal controls, including the pause settings summary/input.
-
-Victory progress is `collected / total`, with an empty arena displayed as complete. Skipped pieces are not counted as collected, so a finished reward phase can end below 100%; completion is decided by the pending set and elapsed time, not the progress bar. Toasts are created only while playing, limited to three, and removed after 2.1 wall-clock seconds. They are hidden during collecting, pause, and results.
-
-`Sound` fetches three local samples during lobby initialization. A user gesture creates/resumes `AudioContext`, then decodes buffers once. Sample sounds pass through a compressor; pickup/win/loss sounds use oscillators. Loading errors are logged and missing combat samples are skipped. Sound and mute state are not persisted.
-
-## Practical limits
-
-The runtime uses `Math.random()` for combat, opponents, AI, cosmetic effects, and legacy free growth. Planned evolution placement follows slot/frontier order and incoming dimensions rather than choosing a random free face. Pure rule functions accept injected random sources where needed for tests, but the complete game is not deterministic. There is no serialization or network synchronization boundary.
-
-Large builds increase geometry, pointer raycasting, and rendering cost. The test suite verifies correctness and instance capacity, not a guaranteed frame rate. Camera framing adapts to growing bodies, but circular actor collision remains an approximation of the visible footprint. See [Testing](TESTING.md) for evidence and manual checks.
+Rendering, adaptive framing and circular actor bounds are approximations rather than a full physics engine. The live game uses `Math.random()`; pure APIs accept injected random sources for tests. There is no serialization/network synchronization boundary. Current tests establish correctness/capacity, not sustained GPU frame rate.

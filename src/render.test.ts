@@ -3,7 +3,42 @@ import * as THREE from 'three';
 import { CHARACTER_TEMPLATES } from './assets/templates';
 import { createStructure } from './game/structure';
 import { evolutionPlan } from './game/evolution';
-import { CharacterView } from './render';
+import { CharacterView, createArenaDots, createPieceProjectile, createRuneCube, disposePieceProjectile } from './render';
+import { projectilePartOffsets } from './game/projectiles';
+
+it('renders a real twenty-part volley as one group with each original size and color', () => {
+  const pieces = CHARACTER_TEMPLATES[0].pieces.slice(0, 20), offsets = projectilePartOffsets(pieces);
+  const scene = new THREE.Scene(), group = createPieceProjectile(pieces);
+  expect(group.children).toHaveLength(20);
+  group.children.forEach((child, i) => {
+    expect(child.position.toArray()).toEqual([offsets[i].x, offsets[i].y, offsets[i].z]);
+    const body = child.children[0] as THREE.Mesh<THREE.BoxGeometry, THREE.MeshStandardMaterial>;
+    expect(body.material.color.getHexString()).toBe(new THREE.Color(pieces[i].color).getHexString());
+    expect(body.scale.toArray()).toEqual([pieces[i].size.x, pieces[i].size.y, pieces[i].size.z]);
+  });
+  scene.add(group); disposePieceProjectile(scene, group); expect(scene.children).not.toContain(group);
+});
+
+it('makes the center rune a metallic cube assembled from 27 bricks', () => {
+  const rune = createRuneCube(); expect(rune.children).toHaveLength(27);
+  for (const cube of rune.children as THREE.Mesh<THREE.BoxGeometry, THREE.MeshStandardMaterial>[]) {
+    expect(cube.material.metalness).toBeGreaterThan(.8);
+    expect(cube.position.toArray().every(n => Math.abs(n) <= .93)).toBe(true);
+  }
+  disposePieceProjectile(new THREE.Scene(), rune);
+});
+
+it('keeps every marker of the enlarged arena inside its GPU instance buffer', () => {
+  const dots = createArenaDots(), matrix = new THREE.Matrix4();
+  expect(dots.count).toBe(6241);
+  expect(dots.count).toBeLessThanOrEqual(dots.instanceMatrix.count);
+  dots.getMatrixAt(dots.count - 1, matrix);
+  expect(matrix.elements.every(Number.isFinite)).toBe(true);
+  expect(matrix.determinant()).toBeCloseTo(1);
+  expect(new THREE.Vector3().setFromMatrixPosition(matrix).toArray()).toEqual([78, expect.closeTo(0.015, 6), 78]);
+  expect(dots.instanceMatrix.version).toBeGreaterThan(0);
+  dots.dispose(); dots.geometry.dispose(); (dots.material as THREE.Material).dispose();
+});
 
 function compareRaycast(view: CharacterView, raycaster: THREE.Raycaster) {
   const accelerated: THREE.Intersection[] = [], original: THREE.Intersection[] = [];

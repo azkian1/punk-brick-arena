@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { EvolutionState, Piece, Structure, Vec3 } from './game/types';
 import { CONFIG } from './game/config';
+import { projectilePartOffsets } from './game/projectiles';
 
 const box = new THREE.BoxGeometry(1, 1, 1);
 const stud = new THREE.CylinderGeometry(0.29, 0.29, 0.16, 8);
@@ -74,6 +75,72 @@ export function createProjectile(owner: 'player' | 'enemy'): THREE.Group {
   group.add(body, top);
   group.scale.setScalar(CONFIG.projectileSize);
   return group;
+}
+
+/** A shot displays the consumed inventory piece, including its color and studs. */
+export function createPieceProjectile(piece: Piece | Piece[]): THREE.Group {
+  const group = new THREE.Group();
+  if (Array.isArray(piece)) {
+    const offsets = projectilePartOffsets(piece);
+    piece.forEach((part, i) => {
+      const mesh = createPieceProjectile(part);
+      mesh.position.set(offsets[i].x, offsets[i].y, offsets[i].z);
+      group.add(mesh);
+    });
+    return group;
+  }
+  const material = new THREE.MeshStandardMaterial({ color: piece.color, roughness: 0.68 });
+  const body = new THREE.Mesh(box, material);
+  body.scale.set(piece.size.x, piece.size.y, piece.size.z);
+  body.castShadow = true; group.add(body);
+  if (piece.shape !== 'tile' && piece.shape !== 'slope') {
+    for (let x = 0; x < Math.floor(piece.size.x); x++) for (let z = 0; z < Math.floor(piece.size.z); z++) {
+      const top = new THREE.Mesh(stud, material);
+      top.position.set(x + 0.5 - piece.size.x / 2, piece.size.y / 2 + 0.07, z + 0.5 - piece.size.z / 2);
+      top.castShadow = true; group.add(top);
+    }
+  }
+  group.scale.setScalar(CONFIG.characterScale);
+  return group;
+}
+
+/** A cosmetic collectible: a polished cube assembled from 27 metal bricks. */
+export function createRuneCube(): THREE.Group {
+  const group = new THREE.Group();
+  const metal = new THREE.MeshStandardMaterial({ color: '#adbaca', metalness: .85, roughness: .23,
+    emissive: '#324d68', emissiveIntensity: .16 });
+  for (let x = -1; x <= 1; x++) for (let y = -1; y <= 1; y++) for (let z = -1; z <= 1; z++) {
+    const cube = new THREE.Mesh(box, metal);
+    cube.position.set(x * .93, y * .93, z * .93); cube.scale.setScalar(.86);
+    cube.castShadow = true; group.add(cube);
+  }
+  return group;
+}
+
+export function disposePieceProjectile(scene: THREE.Scene, group: THREE.Group): void {
+  scene.remove(group);
+  const materials = new Set<THREE.Material>();
+  group.traverse(object => {
+    if (object instanceof THREE.Mesh) {
+      for (const material of Array.isArray(object.material) ? object.material : [object.material]) materials.add(material);
+    }
+  });
+  materials.forEach(material => material.dispose());
+}
+
+/** Allocate every floor marker before writing instance matrices. */
+export function createArenaDots(): THREE.InstancedMesh {
+  const columns = Math.max(0, Math.floor((CONFIG.arenaWidth - 4) / 2) + 1);
+  const rows = Math.max(0, Math.floor((CONFIG.arenaDepth - 4) / 2) + 1);
+  const dots = new THREE.InstancedMesh(new THREE.CircleGeometry(0.075, 6), new THREE.MeshBasicMaterial({ color: '#adbfca' }), columns * rows);
+  let count = 0;
+  for (let x = -CONFIG.arenaWidth / 2 + 2; x <= CONFIG.arenaWidth / 2 - 2; x += 2) for (let z = -CONFIG.arenaDepth / 2 + 2; z <= CONFIG.arenaDepth / 2 - 2; z += 2) {
+    dummy.position.set(x, 0.015, z); dummy.rotation.set(-Math.PI / 2, 0, 0); dummy.scale.set(1, 1, 1); dummy.updateMatrix();
+    dots.setMatrixAt(count++, dummy.matrix);
+  }
+  dots.count = count;
+  dots.instanceMatrix.needsUpdate = true;
+  return dots;
 }
 
 export class CharacterView {
@@ -278,11 +345,14 @@ export class ArenaRenderer {
   private shake = 0;
   private previewMode = false;
   private combatHalfHeight = 37 / CONFIG.cameraZoom;
+  private hudElement: HTMLElement | null = null;
+  private hudAnchor = '';
+  private hudPoint = new THREE.Vector3();
   width = 1;
   height = 1;
   constructor(public canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
-    // One frame includes the arena and both stock previews.
+    // One frame includes the arena and the player's stock preview.
     this.renderer.info.autoReset = false;
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
     this.renderer.shadowMap.enabled = true;
@@ -297,7 +367,7 @@ export class ArenaRenderer {
     sun.position.set(-26, 58, 25);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
-    Object.assign(sun.shadow.camera, { left: -60, right: 60, top: 55, bottom: -55, near: 1, far: 140 });
+    Object.assign(sun.shadow.camera, { left: -85, right: 85, top: 80, bottom: -80, near: 1, far: 180 });
     sun.shadow.bias = -0.0003;
     sun.shadow.normalBias = 0.035;
     this.scene.add(sun);
@@ -324,13 +394,7 @@ export class ArenaRenderer {
     floor.rotation.x = -Math.PI / 2;
     floor.receiveShadow = true;
     group.add(floor);
-    const dots = new THREE.InstancedMesh(new THREE.CircleGeometry(0.075, 6), new THREE.MeshBasicMaterial({ color: '#adbfca' }), 5000);
-    let n = 0;
-    for (let x = -CONFIG.arenaWidth / 2 + 2; x <= CONFIG.arenaWidth / 2 - 2; x += 2) for (let z = -CONFIG.arenaDepth / 2 + 2; z <= CONFIG.arenaDepth / 2 - 2; z += 2) {
-      dummy.position.set(x, 0.015, z); dummy.rotation.set(-Math.PI / 2, 0, 0); dummy.scale.set(1, 1, 1); dummy.updateMatrix(); dots.setMatrixAt(n++, dummy.matrix);
-    }
-    dots.count = n;
-    group.add(dots);
+    group.add(createArenaDots());
     const railMaterial = new THREE.MeshStandardMaterial({ color: '#9cb1bf', roughness: 0.9 });
     for (const side of [-1, 1]) {
       const rail = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.85, CONFIG.arenaDepth + 1), railMaterial);
@@ -340,12 +404,17 @@ export class ArenaRenderer {
       end.position.set(0, 0.2, side * (CONFIG.arenaDepth / 2 + 0.35));
       end.castShadow = true; group.add(end);
     }
-    for (const [x, color] of [[-CONFIG.arenaWidth * 0.31, '#7c3aed'], [CONFIG.arenaWidth * 0.31, '#638596']] as const) {
+    for (const [x, z, color] of [
+      [-CONFIG.arenaWidth * .36, CONFIG.arenaDepth * .36, '#7c3aed'],
+      [CONFIG.arenaWidth * .36, -CONFIG.arenaDepth * .36, '#248d79'],
+      [-CONFIG.arenaWidth * .36, -CONFIG.arenaDepth * .36, '#e56b3d'],
+      [CONFIG.arenaWidth * .36, CONFIG.arenaDepth * .36, '#ca9b24'],
+    ] as const) {
       const mark = new THREE.Mesh(new THREE.RingGeometry(5.9, 6, 64), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.45, side: THREE.DoubleSide }));
-      mark.rotation.x = -Math.PI / 2; mark.position.set(x, 0.03, 0); group.add(mark);
+      mark.rotation.x = -Math.PI / 2; mark.position.set(x, 0.03, z); group.add(mark);
       for (let j = 0; j < 3; j++) {
         const stripe = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 3), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.65, side: THREE.DoubleSide }));
-        stripe.rotation.x = -Math.PI / 2; stripe.position.set(x + j * 1.4 - 1.4, 0.035, CONFIG.arenaDepth / 2 - 7); group.add(stripe);
+        stripe.rotation.x = -Math.PI / 2; stripe.position.set(x + j * 1.4 - 1.4, 0.035, z + 7); group.add(stripe);
       }
     }
     const center = new THREE.Mesh(new THREE.RingGeometry(8.9, 9, 80), new THREE.MeshBasicMaterial({ color: '#9eb2bf', transparent: true, opacity: 0.55, side: THREE.DoubleSide }));
@@ -363,14 +432,54 @@ export class ArenaRenderer {
   }
   resize() {
     this.width = Math.max(1, this.canvas.clientWidth); this.height = Math.max(1, this.canvas.clientHeight);
+    const density = Math.min(window.devicePixelRatio, 1.75);
+    if (this.renderer.getPixelRatio() !== density) this.renderer.setPixelRatio(density);
     this.renderer.setSize(this.width, this.height, false);
     const aspect = this.width / this.height;
-    const inset = this.previewMode ? 0 : Math.max(0, ...this.reserveViews.map(view => view.sideInset(this.width)));
-    const arenaAspect = Math.max(1, this.width - inset * 2) / this.height;
-    const halfHeight = this.previewMode ? Math.max(18, 14 / aspect) : Math.max(this.combatHalfHeight, (CONFIG.arenaWidth / 2 + 3) / arenaAspect);
-    this.camera.left = -halfHeight * aspect; this.camera.right = halfHeight * aspect;
-    this.camera.top = halfHeight; this.camera.bottom = -halfHeight;
+    const desktop = this.width > 760;
+    const sidebar = document.querySelector<HTMLElement>('.player-sidebar')?.getBoundingClientRect();
+    const actions = document.querySelector<HTMLElement>('.action-panel')?.getBoundingClientRect();
+    const left = this.previewMode || !desktop ? 0 : sidebar?.width ? sidebar.right + 12 : 214;
+    const right = this.previewMode || !desktop ? 0 : actions?.width ? this.width - actions.left + 12 : 214;
+    const top = this.previewMode ? 0 : desktop ? 78 : 54, bottom = this.previewMode ? 0 : 16;
+    const arenaAspect = Math.max(1, this.width - left - right) / this.height;
+    const halfHeight = this.previewMode ? Math.max(18, 14 / aspect) : Math.max(
+      this.combatHalfHeight * this.height / Math.max(1, this.height - top - bottom),
+      (CONFIG.arenaWidth / 2 + 3) / arenaAspect);
+    const offsetX = -halfHeight * aspect * (left - right) / this.width;
+    const offsetY = halfHeight * (top - bottom) / this.height;
+    this.camera.left = -halfHeight * aspect + offsetX; this.camera.right = halfHeight * aspect + offsetX;
+    this.camera.top = halfHeight + offsetY; this.camera.bottom = -halfHeight + offsetY;
     this.camera.updateProjectionMatrix();
+  }
+  /** HUD rails follow the visible arena base, independently of camera shake. */
+  private alignArenaHUD() {
+    this.hudElement ??= document.querySelector<HTMLElement>('.game-ui');
+    if (!this.hudElement) return;
+    if (this.previewMode || this.width <= 1280 || this.height < 600) {
+      if (this.hudAnchor) {
+        this.hudElement.style.removeProperty('--arena-hud-top');
+        this.hudElement.style.removeProperty('--arena-hud-height');
+        this.hudAnchor = '';
+      }
+      return;
+    }
+    const rect = this.canvas.getBoundingClientRect();
+    let top = Infinity, bottom = -Infinity;
+    // The outer base includes the thin visible front face beneath the floor.
+    for (const x of [-1, 1]) for (const z of [-1, 1]) for (const y of [-1.5, -.1]) {
+      this.hudPoint.set(x * (CONFIG.arenaWidth + 3) / 2, y, z * (CONFIG.arenaDepth + 3) / 2).project(this.camera);
+      const screenY = rect.top + (1 - this.hudPoint.y) * rect.height / 2;
+      top = Math.min(top, screenY); bottom = Math.max(bottom, screenY);
+    }
+    const screenTop = Math.round(Math.max(88, top) * 2) / 2;
+    const screenBottom = Math.round(Math.min(rect.bottom - 20, bottom) * 2) / 2;
+    const height = Math.max(0, screenBottom - screenTop);
+    const anchor = `${screenTop}/${height}`;
+    if (anchor === this.hudAnchor) return;
+    this.hudElement.style.setProperty('--arena-hud-top', `${screenTop}px`);
+    this.hudElement.style.setProperty('--arena-hud-height', `${height}px`);
+    this.hudAnchor = anchor;
   }
   fitCombat(actors: { x: number; z: number; bounds: { min: Vec3; max: Vec3 } }[]) {
     if (this.previewMode) return;
@@ -386,15 +495,22 @@ export class ArenaRenderer {
     }
     const center = (low + high) / 2;
     this.cameraTarget.set(0, center * upY, center * upZ);
-    const next = Math.max(37 / CONFIG.cameraZoom, (high - low) * .67);
+    const next = Math.max(37 / CONFIG.cameraZoom, (high - low) * .53);
     if (Math.abs(next - this.combatHalfHeight) > .1) { this.combatHalfHeight = next; this.resize(); }
   }
-  pointer(clientX: number, clientY: number, target?: { mesh: THREE.InstancedMesh; x: number; z: number }) {
+  pointer(clientX: number, clientY: number, targets?: { mesh: THREE.InstancedMesh; x: number; z: number; kind?: 'building' } | { mesh: THREE.InstancedMesh; x: number; z: number; kind?: 'building' }[]) {
     const rect = this.canvas.getBoundingClientRect();
     this.raycaster.setFromCamera(new THREE.Vector2((clientX - rect.left) / this.width * 2 - 1, -((clientY - rect.top) / this.height) * 2 + 1), this.camera);
     const result = new THREE.Vector3();
     // Any visible part aims at the actor's planar location; height is never a combat requirement.
-    if (target && this.raycaster.intersectObject(target.mesh).length) return result.set(target.x, 3.2, target.z);
+    let nearest: { distance: number; x: number; z: number } | undefined;
+    for (const target of targets ? Array.isArray(targets) ? targets : [targets] : []) {
+      const hit = this.raycaster.intersectObject(target.mesh)[0];
+      if (hit && (!nearest || hit.distance < nearest.distance)) nearest = {
+        distance: hit.distance, x: target.kind === 'building' ? hit.point.x : target.x, z: target.kind === 'building' ? hit.point.z : target.z,
+      };
+    }
+    if (nearest) return result.set(nearest.x, 3.2, nearest.z);
     this.raycaster.ray.intersectPlane(this.aimPlane, result);
     result.x = THREE.MathUtils.clamp(result.x, -CONFIG.arenaWidth / 2, CONFIG.arenaWidth / 2);
     result.z = THREE.MathUtils.clamp(result.z, -CONFIG.arenaDepth / 2, CONFIG.arenaDepth / 2);
@@ -404,8 +520,13 @@ export class ArenaRenderer {
   kick(amount = 0.35) { this.shake = Math.min(0.8, this.shake + amount); }
   frame(dt: number) {
     this.shake *= Math.exp(-dt * 14);
-    this.camera.position.set((Math.random() - 0.5) * this.shake, 68, 76 + (Math.random() - 0.5) * this.shake);
+    this.camera.position.set(0, 68, 76);
     if (!this.previewMode) this.camera.position.add(this.cameraTarget);
+    this.camera.lookAt(this.cameraTarget);
+    this.camera.updateMatrixWorld();
+    this.alignArenaHUD();
+    this.camera.position.x += (Math.random() - 0.5) * this.shake;
+    this.camera.position.z += (Math.random() - 0.5) * this.shake;
     this.camera.lookAt(this.cameraTarget);
     this.renderer.info.reset();
     this.renderer.render(this.scene, this.camera);

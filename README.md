@@ -1,8 +1,10 @@
 # Punk Brick Arena
 
-A browser arena prototype where one player fights a bot using destructible brick characters. Choose one of five rock-punk evolutions, collect enemy pieces, and build its body downward from your original head. Destroy the opponent's Core to win and carry your surviving construction and spare-part reserve into the next fight.
+A browser arena prototype where one player and three bots fight in a destructible 160 × 160 arena. Later rounds introduce bot alliances and coordinated roles. The player wins by surviving every opponent; losing the player's Core ends the run immediately. Fire real inventory parts, break procedural cover, collect debris, and build one of five rock-punk bodies downward from your original head. A winning player carries the surviving construction and spare-part reserve into a fresh battle.
 
 Built with TypeScript, Three.js, and Vite. The game runs in the browser with local assets and no backend or accounts. The interface and project documentation are in English.
+
+Current local snapshot: **v2 Battle Royal patch** (2026-10-09). See [Release notes](docs/RELEASE_NOTES.md) for the full patch scope and accepted verification. The playable mode is the four-fighter battle; a selectable 1×1 duel is a future proposal. The package metadata remains `0.1.0`.
 
 **[Play Punk Brick Arena](https://azkian1.github.io/punk-brick-arena/)** in a browser with a keyboard and mouse or touch controls.
 
@@ -36,12 +38,10 @@ Use a browser with WebGL support and hardware acceleration. Desktop play uses a 
 ## Play
 
 1. Choose one of 17 heads and an evolution: Mosher, Guitar Demon, Stage Spider, Bass Titan, or Winged Frontman.
-2. Start against a randomly selected character controlled by an easy Balanced bot.
-3. Shoot, dodge incoming projectiles, and move near settled debris to collect it automatically. Keyboard players can also dash with Space.
-4. Reduce the opponent's construction until its Core becomes vulnerable, then destroy it.
-5. Let victory collection finish, then choose **Next Round** to keep your build or **Start Over** to restart with the base character.
-
-Next Round is the victory action that preserves the build; Start Over is the restart action that returns to round 1.
+2. Start a battle with three bots, four corner spawns, and random walls, towers, ruins, steps, and arches.
+3. Choose 1–20 parts per shot with the slider under DASH. Each volley spends available spare parts first, then safely removed body parts; its damage equals the parts actually fired. Break cover or opponents, dodge, and collect debris to repair and grow.
+4. Survive all three opponents. If your Core is destroyed, **DEFEAT / You Lost** appears immediately; restart or choose a character.
+5. Pick up the center color rune when it appears every 30 combat seconds to restore your installed head/body palette. After a player victory, finish loose reward collection and choose **Next Round** to keep your build, or **Start Over** to reset.
 
 | Control | Action |
 | --- | --- |
@@ -50,43 +50,49 @@ Next Round is the victory action that preserves the build; Start Over is the res
 | Left mouse button | Fire; hold for repeated shots |
 | Left touch joystick | Move on touch devices |
 | Touch the arena | Aim and fire; hold for repeated shots |
-| Space | Dash in the movement direction, or toward aim from rest; 2.4-second cooldown |
+| Space / DASH button | Dash in the movement direction, or toward aim from rest; 2.4-second cooldown |
+| PARTS / SHOT slider | Request 1–20 real parts per volley; starts at 1 |
 | P or Escape | Pause or resume combat or victory collection |
 | R | Restart the run at round 1 outside the lobby |
 | M | Toggle sound outside the lobby; a sound button is also available |
 
-Movement and letter shortcuts use physical key positions, so switching keyboard layouts does not change the bindings. Space activates one dash per press; holding it does not repeat the burst. You can shoot during a dash, but it grants no invulnerability.
+Player base speed is 19.8375 world units/second; bot base speed is 15.20875 before difficulty modifiers. Running and dashing are 15% faster than the preceding battle snapshot.
 
-Switching away from the window or hiding the tab pauses combat or victory collection and clears held movement/fire. Return to the game and resume explicitly. Game shortcuts are ignored while a form input, such as the damage slider, has focus. Space and Enter retain their normal menu activation behavior on buttons, links, and expandable settings.
+Movement and shortcuts use physical key positions. Space triggers one dash per press; dashing permits fire and grants no invulnerability. Buildings block movement and dashes, with sliding along their faces.
+
+Switching windows or hiding the tab pauses combat/collection and clears held input. Resume explicitly. Form inputs keep normal keyboard behavior; Space/Enter activate menu controls normally.
 
 ## Menus and match flow
 
 | Screen | Available actions |
 | --- | --- |
-| Lobby | Browse roster pages, select a head and evolution path, start a fight, adjust shared damage, toggle sound, read instructions and credits |
-| Combat | Move, aim, fire, pause, use keyboard shortcuts, or dash with Space |
-| Victory collection | Watch automatic repair/growth; pause/resume, restart, and mute remain available; movement, fire, and dash stop |
-| Pause | Resume the interrupted phase, restart from the base character, choose a character, or adjust shared damage |
-| Victory result | Continue with Next Round, restart from the base character, or choose a character |
-| Defeat result | Restart from the base character or choose a character; Next Round is unavailable |
+| Lobby | Select a head/path, start, toggle sound, read instructions and credits |
+| Combat | Move, aim, fire, choose parts per shot, dash, collect the color rune, pause or restart |
+| Victory collection | Watch loose loot repair/growth; pause/resume or restart |
+| Pause | Resume the interrupted phase, restart, or choose a character |
+| Victory result | Next Round, Start Over, or Choose Character |
+| Defeat result | Restart or Choose Character; Next Round is unavailable |
 
-The result screen stays open until an action is chosen; P/Escape does not dismiss it. Damage and sound settings survive restarts and returning to the lobby. Reloading resets them. Changing roster pages alone does not change the selected character.
+Eliminating a bot releases its stock and combat continues while the player has opponents. Player death ends combat immediately, even with several bots alive; the result does not invent a winner. A sole surviving player finishes loose reward collection before the victory result. P/Escape does not dismiss a result. Shot count and sound settings survive in-page restarts; reload resets them. Roster paging preserves the selected character.
 
 ## Current rules
 
-- **Your body is your health.** Each brick or plate counts as one gameplay piece, regardless of its dimensions. Projectiles are separate objects and never consume body pieces.
-- **Damage is random, with cascades.** A hit removes up to 10 eligible pieces by default, then detaches everything disconnected from the Core. The lobby and pause menu provide a shared player/bot damage slider from 1 to 20.
-- **Core protection is temporary.** The Core is excluded from random damage until a hit leaves at most `max(1, floor(roundStartPieces × 0.4))` pieces. It becomes eligible on the following hit. Pickups can delay exposure, but cannot restore protection after exposure in that round. Exposure alone is not defeat.
-- **Combat pickup requires landing.** Debris must settle and be at least 0.8 seconds old. Its last owner must wait 5 seconds from detachment. These timers use simulation time and freeze during pause.
-- **Repair comes before planned growth.** A collected piece fills a compatible missing slot first, otherwise it fills a connected slot in the selected body. Dimensions, color, and shape are preserved. Parts that do not fit go to the side reserve. There is no random growth outside the blueprint.
-- **Combat pickup happens in batches.** Each fighter can collect up to 8 pieces per simulation step. Collection range grows with the construction. Contested loot is resolved by distance, subject to eligibility, placement, and the batch limit.
-- **Victories can form a run.** Next Round preserves attached pieces, positions, colors, the Core, repair history, evolution stage, and reserve. Enemies start from base templates. The other 16 characters are shuffled without repeats within a cycle or at cycle boundaries.
-- **Victory collection.** Combat and its clock stop; remaining debris and the defeated opponent's reserve go to the winner. Landing and ownership delays no longer apply. The generator retries the winner's reserve, with unused parts kept for later. Pause freezes this stage too.
-- **Three forms.** Start as a head and build phase 2 from collected parts. After a victory, loot collection and reserve assembly must leave at least 85% of the phase-2 body attached to unlock phase 3. Its larger body is rebuilt using your existing parts and reserve; no parts are granted or recolored by evolution. Phase 3 is the final blueprint and continues to accept repairs and missing parts.
-- **Four bot styles and opening difficulty.** Round 1 uses an easy Balanced bot; round 2 uses a medium Balanced bot. From round 3, a full-strength Aggressor, Collector, Sniper, or Balanced bot is picked independently each fight, with repeats allowed. Balanced bots alternate approaching, strafing, and collecting. Aggressors pressure without dodging, Collectors seek safe loot, and Snipers keep their distance and fire rapidly under close pressure. The HUD identifies the style, opening difficulty, and sniper panic. There is no manual style or difficulty selector.
-- **Storage is automatic.** The Backpack and Rival stock side panels show exact counts and 3D samples of stored parts, collapsing to counters on small screens; there is no need to visit them. Enemies start with a base head, a randomly chosen evolution, and an empty reserve. Each fight starts with 24 neutral loose pieces. Returning to the lobby, restarting, or reloading loses the current run and reserve.
+- **Real parts are ammunition.** Each shot requests 1–20 parts and transfers as many real parts as available, consuming reserve before safely removable non-Core body pieces. Body removal is deterministic and preserves surviving connectivity without a firing cascade. A bare Core with no stock cannot fire.
+- **Shots preserve every part.** One logical volley packs its real parts visually and resolves one nearest contact. Every ID, dimension, color, and shape stays intact; every spent part becomes debris after impact or a non-damaging boundary arc. No lifetime timeout deletes ammunition.
+- **Fired recovery is shared.** No fighter can collect a fired part until it lands and reaches five seconds since firing. This age continues through impact/rebound, and the lock remains during victory collection.
+- **Damage follows ammunition.** Direct damage equals the number of parts actually fired, with a default one-part shot. Hits remove up to that many eligible target pieces, then detach unsupported sections; cascades can exceed direct damage. There is no independent damage setting.
+- **Core protection is temporary.** The Core stays protected until attached pieces reach `max(1, floor(roundStartPieces × 0.4))`; a damage batch starting protected cannot remove it. Firing can also expose it. Repair cannot rearm protection during that battle. Core destruction eliminates the fighter.
+- **Cover is destructible.** Twenty clustered buildings mix five procedural types and block shots, movement, and dashes. Four diagonal routes, each 52 world units wide, connect the corner spawns to a clear center and accommodate the largest authored body. Local damage drops unsupported sections using all remaining floor anchors. Grounded fragments survive, and demolished gaps become traversable. Their bricks can repair, grow, bank, or fire.
+- **Combat loot is contested.** Ordinary damage debris must settle and reach 0.8 seconds; its last owner waits five seconds from detachment. Dead fighters release banked parts as floor loot. Nearest eligible fighters compete for up to 8 pickups each per simulation step.
+- **Repair precedes planned growth.** Exact-size compatible missing slots are filled before connected new body slots. Original color and shape are preserved. Unused parts go to reserve; parts are not resized, split, combined, or rotated to fit.
+- **Survive every opponent.** The player must outlast all three bots. Player Core destruction immediately freezes combat, inputs, debris ages and rune time and shows defeat. Pending shots become drops with their fired ages and five-second lock preserved. A player victory collects remaining loose debris and fired parts after their lock; standing buildings are not awarded.
+- **Victories continue the run.** Next Round preserves attached inventory, Core, repair history, evolution stage and reserve, rearms protection from attached starting count, and generates three fresh base bots and a new map. Start Over, the lobby, or reload clears the run.
+- **Three forms.** Start as a head and assemble phase 2. After victory collection/assembly, at least 85% of its body slots unlocks phase 3 using existing body parts and stock. No replacement parts are granted; phase 3 is final.
+- **A color rune restores installed colors.** A cube appears at the clear center every 30 combat seconds and remains until a living player or bot touches it. Each pickup restores the selected head's original colors and a dark clothing/silver/detail palette for the chosen body, once. IDs, geometry, missing parts, reserve, drops and active shots are unchanged; later loot keeps its own color. Uncollected runes do not stack.
+- **Bots cooperate as rounds advance.** Round 1 is free-for-all. In round 2, two bots ally and share a target; the player and third bot remain independent. From round 3, all three bots ally against the player. From round 4, two attack from different angles while one gathers and grows. Losing at least 35% of a bot's attained attached build triggers recovery; a healthy collector immediately replaces it. Returning requires 90% restoration, preventing repeated role switching. Allies cannot hurt each other. Bots use real DASH with the same duration/recharge rules, choose 1–20 actual parts per volley and can sustain player-rate fire when stocked or using bounded body ammunition while healthy. Recovery and harvesting spend real parts and never create free health or ammunition.
+- **Storage is automatic.** Two equally sized desktop HUD columns align with the arena's visible top and bottom, with large numbers and a common Segoe UI font. Your build/Core, evolution, repair and growth sit above Backpack on the left; DASH sits above parts per shot on the right. Smaller windows use compact cards; short touch and mouse windows show the Backpack header/count. Its transparent 3D stage samples actual stored parts. Opponent counters, time/round/alive counters, Rival stock and pickup-report toasts are absent. Repair/growth totals remain in the player card. Each battle starts with 24 neutral loose pieces. Attachment caps at 16,000 per fighter; eligible excess loot can remain banked.
 
-Combat uses planar collision even though characters are rendered in 3D. Pointing at the opponent's visible body aims at its arena position; there is no separate height targeting. The camera adapts to growing bodies. Attachment stops at 16,000 pieces per fighter, while eligible excess loot can still enter the reserve. Character render buffers grow as needed.
+Combat uses planar collision with circular actor bounds and actual remaining building footprints. The earliest swept contact blocks a shot; pointing at a fighter's visible body aims at its arena position. Camera framing follows living constructions and cover. Pause freezes simulation timers, including fired-part recovery, rune spawning and reward collection.
 
 ## Commands
 
@@ -105,15 +111,15 @@ For production preview, use the URL printed by Vite. GitHub Pages publishes the 
 
 ```text
 index.html                 Browser entry point
-src/main.ts                Input, fixed-step simulation, bot, projectiles, debris
-src/game/                  Structure, evolution, reserve, pickup, movement, bots, rounds
+src/main.ts                Input, four-fighter simulation, immediate defeat, shots and debris
+src/game/                  Structure, part ammo, projectiles, cover, evolution, bots, rounds
 src/render.ts              Three.js arena and instanced character rendering
 src/ui.ts                  Lobby, HUD, pause and result screens
 src/style.css              Responsive interface styles
 src/sound.ts               Local samples and synthesized feedback
 src/assets/                Roster, generated templates, diagnostics, provenance
 src/vendor/punk-to-bricks/  Pinned offline generator and original notices
-scripts/                   Development server, character and evolution asset preparation
+scripts/                   Development, asset preparation, battle browser audit
 vite.config.js             Production CSP and local preview security headers
 prototypes/brick-evolution/ Authored models, assembly viewer, and prototype validation
 public/assets/             Source portraits, audio, attribution
@@ -133,7 +139,7 @@ The ignored `artifacts/` directory contains local review pages, earlier QA outpu
 | [Development](docs/DEVELOPMENT.md) | Setup, commands, configuration, build, hosting, and troubleshooting |
 | [Asset pipeline](docs/ASSETS.md) | Character roster, generator conversion, provenance, and audio preparation |
 | [Testing](docs/TESTING.md) | Automated coverage, manual checks, diagnostics, and verification results |
-| [Gameplay audit](docs/GAMEPLAY_AUDIT.md) | Twenty-match scenarios per path, conservation checks, extreme states, and limits |
+| [Gameplay audit](docs/GAMEPLAY_AUDIT.md) | Current battle harness, conservation/fixtures, and historical duel evidence |
 | [Performance audit](docs/PERFORMANCE_AUDIT.md) | Local hardware, measured bottlenecks, optimizations, and repeatable profiling |
 | [Security audit](docs/SECURITY_AUDIT.md) | Dependencies, UI data, credential scans, production policy, and hosting scope |
 | [Third-party notices](THIRD_PARTY_NOTICES.md) | Existing source credits and license notices |
@@ -142,6 +148,6 @@ The ignored `artifacts/` directory contains local review pages, earlier QA outpu
 
 Version `0.1.0` is a playable prototype. Match duration, bot difficulty, balance, and performance across devices still need playtesting. Runs, inventories, and settings are held in memory and are not saved across reloads. There is no online multiplayer, gamepad support, or character editor. The intended 2–5 minute match length is a design target, not an enforced limit.
 
-The 2026-10-06 integrated audit passed **199 tests in 14 files** and the production build. A separate browser run completed 20 assisted projectile matches per evolution, 100 total, with conservation checks and no page/console errors; it does not estimate human win rate. Local laptop profiling led to rendering, connectivity, and reserve optimizations, while dependency remediation left both npm audit scopes with zero reported advisories. Sustained interactive 60 FPS and remote hosting settings remain unverified. Vite still reports a JavaScript chunk above its 500 kB warning threshold. See [Testing](docs/TESTING.md) and the three audit reports for exact source snapshots, extreme-state fixtures, measurements, and limitations.
+The final 2026-10-09 coordinated-bot rule suite passed 446 tests in 23 files. `scripts/bot-squad-browser-audit.mjs` checks alliances, real recovery/replacement, rapid reserve/body fire and DASH through the production loop, plus five partial native-map behavior runs. The current `scripts/battle-browser-audit.mjs` harness checks earlier combat/progression regressions; its default assisted matches and granted fixtures have different scopes. Exact commands, reports and snapshot dates are recorded in [Testing](docs/TESTING.md). The earlier HUD/367-test record and the 2026-10-06 199-test/100-match duel audit remain historical and do not establish current human balance or GPU FPS. Device performance and remote hosting settings still need verification; Vite's large-chunk warning remains.
 
 Characters come from the 17 sample portraits supplied with the vendored Punk to Bricks revision. Its generator code carries John Karp's MIT notice; image rights are documented separately. Combat samples are credited to kurt and Kenney. See [Third-party notices](THIRD_PARTY_NOTICES.md) and the distribution copy at [public/assets/ATTRIBUTION.txt](public/assets/ATTRIBUTION.txt). The project's [MIT License](LICENSE) applies to its original code and documentation; it does not relicense third-party artwork or trademarks.

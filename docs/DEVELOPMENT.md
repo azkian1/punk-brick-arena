@@ -2,6 +2,8 @@
 
 See the [README](../README.md) for the shortest setup path and [Architecture](ARCHITECTURE.md) for code responsibilities.
 
+This reference describes **v2 Battle Royal patch**, reviewed on 2026-10-09. The live browser entry point is a four-fighter battle; retained duel APIs serve compatibility tests. See [Release notes](RELEASE_NOTES.md) and [Testing](TESTING.md) for patch scope and accepted checks.
+
 ## Environment and installation
 
 Use Node.js 22.12 or newer with npm. The locked Vite dependency declares `^20.19.0 || >=22.12.0`; this project's documented baseline is 22.12+. Validation on 2026-10-05 used Node.js 24.11.0 and npm 11.6.1 on Windows.
@@ -25,13 +27,16 @@ The locked tool versions after the 2026-10-06 security review are Three.js 0.180
 | --- | --- |
 | `npm run dev` | Runs `scripts/dev.mjs`; listens on `127.0.0.1:5173` with `strictPort: true` |
 | `npm test` | Runs all Vitest tests once |
+| `npm test -- --maxWorkers=2` | The accepted 446-test patch run; avoid concurrent GPU/browser audits |
 | `npm test -- --maxWorkers=1 --no-file-parallelism` | Runs the suite serially; useful when the long stress test times out during parallel execution |
 | `npm test -- src/game/structure.test.ts` | Runs one test file while working on structural rules |
 | `npm run build` | Runs `tsc --noEmit`, then the Vite production build |
 | `npm run security:check` | Runs the security guard tests and scans the working tree and an existing fresh `dist/` build; run `npm run build` first |
 | `npm run preview` | Serves the existing production build on loopback; use the URL printed by Vite |
 | `npm run assets:generate` | Rewrites template JSON and diagnostics from the local roster images |
-| `npx tsx scripts/generate-evolutions.ts` | Exports the ten approved body blueprints to geometry-only runtime JSON |
+| `npx tsx scripts/generate-evolutions.ts` | Exports ten approved body blueprints and their authored color palettes to runtime JSON |
+| `npm run test:mobile` | Checks actual touch movement/firing and release reset in both orientations |
+| `node scripts/bot-squad-browser-audit.mjs` | Checks round alliances, role swaps, DASH, real volleys and native-map bot behavior |
 
 The development wrapper sets `configFile: false` and disables dependency auto-discovery/prebundling with an empty include list. The project `vite.config.js` configures production builds and preview: it adds the production Content Security Policy and preview HTTP security headers. The wrapper deliberately does not load that config, so local development retains its own settings. Update the wrapper to change development options; CLI flags appended to `npm run dev` are not forwarded to Vite by the wrapper.
 
@@ -45,17 +50,17 @@ All values below come from [src/game/config.ts](../src/game/config.ts). Times ar
 
 | Key | Value | Meaning |
 | --- | --- | --- |
-| `arenaWidth`, `arenaDepth` | 72.5, 72.5 | Playable X/Z dimensions |
-| `movementSpeed` | `15 * 1.15` = 17.25 | Player target movement speed |
-| `botSpeed` | `11.5 * 1.15` = 13.225 | Base bot movement speed before behavior/evasion multipliers |
+| `arenaWidth`, `arenaDepth` | 160, 160 | Playable X/Z dimensions |
+| `movementSpeed` | `15 * 1.15 * 1.15` = 19.8375 | Player target movement speed |
+| `botSpeed` | `11.5 * 1.15 * 1.15` = 15.20875 | Base bot movement speed before behavior/evasion multipliers |
 | `projectileSpeed` | 64 | Planar projectile speed |
-| `shotInterval` | 0.23 | Player firing cooldown |
-| `botShotInterval` | 0.62 | Base Balanced and non-panic Sniper firing interval, before difficulty multiplication |
+| `shotInterval` | 0.23 | Player cooldown and minimum interval enforced for every runtime fighter |
+| `botShotInterval` | 0.62 | Base Balanced interval before battle behavior and difficulty adjustment |
 | `dashDuration` / `dashCooldown` | 0.18 / 2.4 | Dash duration and recharge in simulation seconds |
-| `dashSpeedMultiplier` | 3.3 | Dash speed relative to normal player movement |
+| `dashSpeedMultiplier` | 3.3 | Shared player/bot dash speed multiplier for the supplied movement speed |
 | `victoryMinDuration` / `victoryPickupBatchSize` | 2.4 / 16 | Minimum reward time; separate per-step budgets for incoming loot attempts and reserve attachments |
-| `projectilePower` | 10 | Initial direct-removal power for both fighters |
-| `projectileSize` | 1.25 | Projectile visual scale and planar collision diameter |
+| `projectilePower` | 10 | Retained legacy damage-fixture value; live volley damage uses actual spent-part count |
+| `projectileSize` | 1.25 | Legacy visual/default collision fallback; live volleys use their packed real-part footprint |
 | `pickupRadius` | 2.8 | Minimum collection radius |
 | `pickupReach` | 0.75 | Margin added to scaled horizontal bounds |
 | `pickupBatchSize` | 8 | Maximum pickups per actor per step; also the separate default reserve-assembly budget |
@@ -66,9 +71,9 @@ All values below come from [src/game/config.ts](../src/game/config.ts). Times ar
 | `characterScale` | 0.5 | Local stud units to world scale during combat |
 | `maxPieces` | 16,000 | Attached-piece ceiling per actor; evolved fighters can still bank loot; debris render buffers grow separately |
 
-Damage can be overridden at runtime by the lobby/pause slider (integer 1–20). It applies when a projectile hits, including projectiles already in flight after resuming. Starting another fight does not reset this page-level setting.
+The combat slider requests 1–20 parts per shot, initially 1. It transfers actual reserve parts first, then safely removable non-Core body parts. Shortages produce smaller volleys; a bare Core without stock cannot fire. Damage is fixed to each volley's actual count when fired, so changing the slider does not change existing shots. The requested count persists across in-page restarts.
 
-Some constants live elsewhere: `main.ts` defines a 60 Hz simulation, 0.1-second frame-delta clamp, 1.8-second projectile lifetime, and 24 starting drops; `ui.ts` defines six roster entries per page; `render.ts` defines initial instance capacities, pixel-ratio limits, and the 240-piece reserve sample. `EVOLUTION_THRESHOLD` in `evolution.ts` is 0.85, and body geometry lives in generated JSON. Search those files before treating `CONFIG` as an exhaustive settings API.
+Some constants live elsewhere: `main.ts` defines a 60 Hz simulation, 0.1-second frame-delta clamp and 24 starting drops; `ui.ts` defines six roster entries per page; `render.ts` defines initial instance capacities, pixel-ratio limits and the 240-piece reserve sample. `EVOLUTION_THRESHOLD` in `evolution.ts` is 0.85. Body geometry and color palettes live in generated JSON. `rune.ts` uses a 30-combat-second spawn interval. `projectiles.ts` preserves fired inventory without a lifetime deletion, locks pickup for five seconds from firing, and rebounds within 1–33% of edge-to-center distance with speed bounded by the original shot. Search these modules before treating `CONFIG` as an exhaustive settings API.
 
 World debris starts with a 1,024-instance render buffer and expands when needed; it does not impose a logical loot limit. Large buffers are released on round reset. Settled debris reuses unchanged transforms and colors, while moving or compacted entries update their affected buffer ranges.
 
@@ -78,20 +83,20 @@ World debris starts with a 1,024-instance render buffer and expands when needed;
 
 Keep `revision` for attached geometry and `reserveRevision` for stock changes consistent. Cached frontiers, bounds, character instances, and side piles use them. Check both incoming pickup and stored-part assembly when changing capacity or batch settings. The 85% threshold is evaluated after victory collection/assembly, never during active combat; the same threshold is shown in the UI.
 
-### Bot tuning outside CONFIG
+### Bot coordination and tuning
 
-The following values are local to [bots.ts](../src/game/bots.ts). Distances refer to actor centers, in world units. Define `contact = 0.8 * (player.radius + enemy.radius)` when reading the distance formulas.
+[bot-squad.ts](../src/game/bot-squad.ts) owns alliances and roles. [bots.ts](../src/game/bots.ts) owns `thinkBattleBot()` for the current runtime; the older duel decision API remains compatibility code and does not describe battle behavior.
 
-| Parameter | Aggressor | Collector | Sniper | Balanced |
-| --- | --- | --- | --- | --- |
-| Base speed multiplier | 1.12 | 1 | 1 | 1 |
-| Base shot interval | 0.3 seconds | 0.85 seconds | `CONFIG.botShotInterval` (0.62), or 0.12 during panic | `CONFIG.botShotInterval` (0.62) |
-| Maximum firing distance (exclusive) | 66 | 42 | 66 | 66 |
-| Main spacing rule | Approach beyond `contact + 0.5` | Retreat below `max(18, contact + 8)` | Preferred range `max(28, contact + 12)` | Tactic range `max(16 or 22, contact + 7)`; retreat below `contact + 5` |
-| Projectile evasion | Disabled | Difficulty-dependent | Difficulty-dependent | Difficulty-dependent, with 1.1-second retry cooldown |
-| Panic threshold | None | None | Distance below `max(15, contact + 5)` | None |
+| Round | Alliance and role policy |
+| --- | --- |
+| 1 | Four independent fighters |
+| 2 | bot-1 and bot-2 ally and coordinate a hostile target; the player and bot-3 stay independent |
+| 3 | All three bots ally against the player |
+| 4+ | Two healthy attackers approach from different angles, while a collector gathers and grows |
 
-`botForRound()` controls progression: round 1 is Balanced/easy, round 2 Balanced/medium, and rounds 3+ use an independent random style at normal difficulty. Repeated styles are allowed. Restart resets this progression. The difficulty factors in `BOT_DIFFICULTIES` are:
+At or below 65% of its attained attached-piece peak, a squad member enters recovery and a healthy collector can replace an attacker immediately. Recovery ends at 90%. Reserve is excluded from health, and role decisions never award parts or reset Core exposure. Round 2 shared targets have a three-second commitment, with local deferral of unreachable targets to prevent stalling. Hostility filters apply to target/threat selection and swept projectile impact; allied hits are also rejected at damage application.
+
+`botForRound()` selects Balanced/easy for round 1, Balanced/medium for round 2, and an independently sampled full-strength style for each later bot. Repeated styles are allowed; styles are separate from alliance/role policy. The difficulty factors in `BOT_DIFFICULTIES` are:
 
 | Difficulty | Movement multiplier | Shot-interval multiplier | Decision interval | Added aim spread | Aim-lead multiplier | Dodge probability per eligible detected threat |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -99,9 +104,11 @@ The following values are local to [bots.ts](../src/game/bots.ts). Distances refe
 | `medium` | 0.85 | 1.35 | 0.24 s | 1.8 | 0.65 | 0.55 |
 | `normal` | 1 | 1 | 0.12 s | 0 | 1 | 1 |
 
-Thus the opening Balanced bot fires at 1.178-second intervals, the second-round bot at 0.837 seconds, and a full-strength Balanced bot at 0.62 seconds. Difficulty changes movement and aim/fire decisions, not projectile speed, damage power, or structural rules.
+Battle decisions combine vulnerability, target motion, exact surviving cover, pickup eligibility and real ammunition. Preparation ends after gaining four reserve parts, six net parts or six combat seconds. Collectors stay at an in-range pile until its eligible pickups finish; recovering fighters seek repair resources, and attackers can flank or clear obstructing cover. Styles and difficulty modify ordinary intervals, aim and movement; they do not grant resources or extra projectile damage.
 
-Wandering targets and Balanced tactics refresh every 2–4 seconds. Evasion looks up to 0.7 seconds ahead, lasts 0.28 seconds, and uses a 1.22 speed multiplier before difficulty adjustment. These are movement heuristics, not player dash settings. Changing `botShotInterval` affects Balanced and non-panic Sniper fire. Keep `BOT_LABELS`, `BOT_DIFFICULTIES`, HUD labels, round progression, and product documentation aligned with tuning changes.
+From round 2, active enemy combat can fire at the player's 0.23-second interval when stocked, or with bounded safe body ammunition at health of at least 68% or a viable finishing opportunity. Collecting/recovering body fire does not receive this attack override. Actual execution always enforces the minimum cooldown. Bots choose 1–20 parts using hit confidence, resources, health and finishing chances; positive stock is not padded with body pieces to fill a requested group.
+
+Each bot owns a real `DashState` and uses the shared movement function. AI requests require a ready cooldown and a full segment safe from cover/arena edges, accounting for threat lanes. Pause freezes recharge and duration; reset creates fresh states. `window.__arenaSnapshot.fighters` exposes team, role, intent, target, desired/actual volley count, shot count and independent dash state for QA. See [Architecture](ARCHITECTURE.md) for route caching and [Testing](TESTING.md) for fixtures and smoke-run limits.
 
 ## Production output and hosting
 
@@ -138,7 +145,7 @@ Change roster content through the catalog, source PNGs, and generation pipeline.
 
 Change UI text in `ui.ts` and related runtime messages/metadata as needed. UI copy, accessibility labels, character subtitles, evolution names/descriptions, prototype text, and project documentation must be English with no Cyrillic characters. Use Body Form for phase 2 and Final Form for phase 3, including HUD, tooltips, and prototype captions. Keep button labels consistent: Next Round preserves the build and reserve; Start Over resets both. The code has no locale selector or translation dictionary. For UI work, manually check lobby scrolling, canvas reparenting, dialogs, focus, and resize behavior.
 
-Control changes span the event handlers in `main.ts`, movement rules in `movement.ts`, and hints/HUD in `ui.ts`. Preserve the form-input and native button-key guards when adjusting shortcuts. Menu changes can also affect phase gating, modal focus, top-bar `inert`, and responsive rules in `style.css`; check playing, collecting, pause, victory, and defeat separately. UI fixtures must supply a real `#arena` canvas and all current update/result fields, including dash, bot style/difficulty, and victory counters.
+Control changes span the event handlers in `main.ts`, movement rules in `movement.ts`, and hints/HUD in `ui.ts`. Preserve the form-input and native button-key guards when adjusting shortcuts. Menu changes can also affect phase gating, modal focus, top-bar `inert`, and responsive rules in `style.css`; check playing, collecting, pause, victory, and defeat separately. UI fixtures must supply a real `#arena` canvas and all current update/result fields, including player build/evolution, dash, requested shot count and victory counters. Opponent stock/status and time/round/alive HUD counters are intentionally absent.
 
 When rules, configuration, scripts, or assets change, update the corresponding documentation and run the checks appropriate to that change.
 
@@ -153,7 +160,7 @@ When rules, configuration, scripts, or assets change, update the corresponding d
 | Silent combat | Start/resume with a user gesture, check mute, and inspect requests for the three local audio files |
 | Missing portraits/audio on a hosted site | Check that asset requests include the configured `DEPLOY_BASE_PATH` and the complete `dist/` was uploaded |
 | Fight pauses after changing tabs | This is intentional; resume after returning |
-| P/Escape or another game shortcut does nothing while adjusting damage | Form inputs bypass game shortcuts; leave the slider or use the Resume button |
+| P/Escape or another game shortcut does nothing while adjusting parts per shot | Form inputs bypass game shortcuts; leave the slider or use the Resume button |
 | Space activates a menu control instead of dashing | Native button/link/settings keyboard handling takes priority; dash is available only during combat |
 | No Next Round action after defeat | Expected: only a living winner can carry its construction forward |
 | Collected pieces go to the pile without increasing body progress | Their exact dimensions may not fit a currently connected repair/body slot; stock is retained and retried as the build changes |
