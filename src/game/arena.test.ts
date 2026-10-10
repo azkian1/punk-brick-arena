@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { CONFIG } from './config';
-import { ARENA_ROUTE_HALF_WIDTH, damageArenaBuilding, generateArenaBuildings, resolveArenaBuildings, segmentBuildingHit, type ArenaBuilding } from './arena';
-import { connectedToCore, contactGraph, getBounds, validGeometry } from './structure';
+import { ARENA_PART_TYPES, ARENA_ROUTE_HALF_WIDTH, MAX_ARENA_BUILDING_PIECES, damageArenaBuilding, generateArenaBuildings, resolveArenaBuildings, segmentBuildingHit, type ArenaBuilding } from './arena';
+import { connectedToCore, contactGraph, getBounds, intersects, validGeometry } from './structure';
+import templates from '../assets/templates.generated.json';
+import evolutions from '../assets/evolutions.generated.json';
 import { clampToArena } from './movement';
 import type { MovingBody } from './movement';
 import type { Piece, Random, Structure } from './types';
@@ -28,6 +30,7 @@ function floorConnected(structure: Structure): Set<string> {
 }
 const snapshot = (buildings: ArenaBuilding[]) => buildings.map(b => ({ x: b.x, z: b.z, id: b.id,
   template: b.template, bounds: b.bounds, pieces: [...b.structure.pieces.values()] }));
+const signature = (piece: Pick<Piece, 'size' | 'shape'>) => [piece.size.x, piece.size.y, piece.size.z, piece.shape].join(':');
 
 describe('procedural destructible arena', () => {
   it('reproduces a seed while different seeds change layout and brick shapes', () => {
@@ -45,19 +48,50 @@ describe('procedural destructible arena', () => {
     const all = [...a, ...b].flatMap(b => [...b.structure.pieces.values()]);
     expect(new Set(all.map(p => p.id)).size).toBe(all.length);
     expect(new Set([...a, ...b].map(b => b.id)).size).toBe(a.length + b.length);
-    for (const piece of all) {
-      expect(validGeometry(piece)).toBe(true);
-      expect(piece.size.x).toBeLessThanOrEqual(2);
-      expect(piece.size.z).toBeLessThanOrEqual(2);
-      expect([0.4, 1.2]).toContain(piece.size.y);
+    const catalogue = new Set(ARENA_PART_TYPES.map(signature));
+    for (const piece of all) { expect(validGeometry(piece)).toBe(true); expect(catalogue.has(signature(piece))).toBe(true); }
+    expect(new Set(all.map(signature))).toEqual(catalogue);
+  });
+  it('derives the exact oriented size and shape catalogue from real character and evolution parts', () => {
+    const actual = new Set(templates.flatMap(template => template.pieces).map(piece => signature(piece as Piece)));
+    for (const evolution of evolutions) for (const slot of evolution.slots) {
+      actual.add(signature({ size: { x: slot[3], y: slot[4], z: slot[5] }, shape: slot[4] < 1 ? 'plate' : 'brick' }));
     }
-    expect(new Set(all.map(p => [p.size.x, p.size.y, p.size.z].join(':'))).size).toBeGreaterThanOrEqual(6);
+    expect(new Set(ARENA_PART_TYPES.map(signature))).toEqual(actual);
+    expect(actual.size).toBe(57);
+    expect(new Set(ARENA_PART_TYPES.map(type => [type.size.x, type.size.y, type.size.z].join(':'))).size).toBe(39);
+    expect(actual.has('2:1.2:8:brick')).toBe(false);
+  });
+  it('covers the whole catalogue in each map with varied quantities and visibly large beams and plates', () => {
+    for (const seed of [1, 48, 927]) {
+      const buildings = generateArenaBuildings(seeded(seed)), pieces = buildings.flatMap(b => [...b.structure.pieces.values()]);
+      expect(new Set(pieces.map(signature))).toEqual(new Set(ARENA_PART_TYPES.map(signature)));
+      expect(new Set(pieces.map(piece => piece.shape))).toEqual(new Set(['brick', 'plate', 'tile']));
+      expect(new Set(buildings.map(b => b.structure.pieces.size)).size).toBeGreaterThan(5);
+      for (const b of buildings) expect(b.structure.pieces.size).toBeLessThanOrEqual(MAX_ARENA_BUILDING_PIECES);
+      expect(pieces.some(piece => piece.size.x === 8 && piece.size.y === 1.2 && piece.size.z === 2)).toBe(true);
+      expect(pieces.some(piece => piece.size.x === 2 && piece.size.y === 0.4 && piece.size.z === 8)).toBe(true);
+    }
+  });
+  it('keeps catalogue coverage and the piece limit with RNG values at or outside their endpoints', () => {
+    for (const value of [0, 1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      const buildings = generateArenaBuildings(() => value);
+      expect(buildings.length).toBe(20);
+      expect(new Set(buildings.map(b => b.template)).size).toBe(5);
+      expect(new Set(buildings.flatMap(b => [...b.structure.pieces.values()].map(signature))))
+        .toEqual(new Set(ARENA_PART_TYPES.map(signature)));
+      expect(buildings.every(b => b.structure.pieces.size <= MAX_ARENA_BUILDING_PIECES)).toBe(true);
+    }
   });
   it('generates connected floor-supported construction for every template', () => {
     for (const b of generateArenaBuildings(seeded(22))) {
       expect(connectedToCore(b.structure).size, b.template).toBe(b.structure.pieces.size);
       expect(floorConnected(b.structure).size, b.template).toBe(b.structure.pieces.size);
       expect(b.bounds.min.y).toBe(0);
+      const pieces = [...b.structure.pieces.values()];
+      for (let i = 0; i < pieces.length; i++) for (let j = i + 1; j < pieces.length; j++) {
+        expect(intersects(pieces[i], pieces[j]), b.template + ' ' + pieces[i].id + ' / ' + pieces[j].id).toBe(false);
+      }
     }
   });
   it('keeps all four full-form spawn-to-center routes and the arena boundary clear across seeds', () => {
@@ -74,6 +108,13 @@ describe('procedural destructible arena', () => {
         expect(b.x + b.bounds.max.x * CONFIG.characterScale).toBeLessThan(CONFIG.arenaWidth / 2);
         expect(b.z + b.bounds.min.z * CONFIG.characterScale).toBeGreaterThan(-CONFIG.arenaDepth / 2);
         expect(b.z + b.bounds.max.z * CONFIG.characterScale).toBeLessThan(CONFIG.arenaDepth / 2);
+      }
+      for (let i = 0; i < buildings.length; i++) for (let j = i + 1; j < buildings.length; j++) {
+        const a = buildings[i], b = buildings[j], scale = CONFIG.characterScale;
+        expect(a.x + a.bounds.max.x * scale + 2.2 <= b.x + b.bounds.min.x * scale ||
+          b.x + b.bounds.max.x * scale + 2.2 <= a.x + a.bounds.min.x * scale ||
+          a.z + a.bounds.max.z * scale + 2.2 <= b.z + b.bounds.min.z * scale ||
+          b.z + b.bounds.max.z * scale + 2.2 <= a.z + a.bounds.min.z * scale).toBe(true);
       }
     }
   });

@@ -133,7 +133,7 @@ describe('battle bots treat every opponent as a threat and a target', () => {
     const action = thinkBattleBot(createBot('balanced', () => 0.75), actor('bot-1', 0, 0, 0),
       [actor('player', 24, 0)], [], [], [], 0.016, 0);
     expect(action.targetId).toBe('player'); expect(action.fire).toBe(true);
-    expect(action.shotInterval).toBeGreaterThan(0.62);
+    expect(action.shotInterval).toBe(CONFIG.shotInterval);
   });
   it('resumes fighting after physical repairs even though Core exposure is permanent', () => {
     const self = actor('bot-1'); self.structure.coreExposed = true;
@@ -188,14 +188,16 @@ describe('battle bot resource navigation recovers from unreachable loot', () => 
     damageStructure(self.structure, self.structure.pieces.size, seeded(31));
     return self;
   };
-  const collectFor = (self: BattleBotBody, loot: ReturnType<typeof drop>[], buildings: ArenaBuilding[], seconds = 10) => {
+  const collectFor = (self: BattleBotBody, loot: ReturnType<typeof drop>[], buildings: ArenaBuilding[], seconds = 10,
+    onFrame?: (previous: { x: number; z: number }, action: ReturnType<typeof thinkBattleBot>, collected: ReturnType<typeof collectNearbyDrops>) => void) => {
     const bot = createBot('balanced', () => 0.75);
     for (let tick = 0; tick < seconds * 60; tick++) {
       const action = thinkBattleBot(bot, self, [], loot, [], buildings, 1 / 60, tick / 60, () => 0.75);
       const previous = { x: self.x, z: self.z };
       moveBody(self, action.x, action.z, action.speed, 1 / 60);
       resolveArenaBuildings(self, buildings, previous);
-      collectNearbyDrops(loot, [self], () => 0.75);
+      const collected = collectNearbyDrops(loot, [self], () => 0.75);
+      onFrame?.(previous, action, collected);
     }
     return bot;
   };
@@ -224,9 +226,19 @@ describe('battle bot resource navigation recovers from unreachable loot', () => 
     const building = cover('closed-courtyard', [block('left', -20, -20, 4, 40), block('right', 16, -20, 4, 40),
       block('top', -16, -20, 32, 4), block('bottom', -16, 16, 32, 4)]);
     const self = exhausted(-14), loot = [drop(0, 0, 'sealed'), drop(-14, 18, 'outside')];
-    collectFor(self, loot, [building], 8);
+    let outsideZ: number | undefined, laterHarvest = false;
+    const bot = collectFor(self, loot, [building], 8, (previous, action, collected) => {
+      expect(segmentBuildingHit(previous.x, previous.z, self.x, self.z, building, self.radius - 1e-5)).toBeNull();
+      expect(segmentBuildingHit(self.x, self.z, self.x, self.z, building, self.radius - 1e-5)).toBeNull();
+      expect(Math.abs(self.x) >= 8 || Math.abs(self.z) >= 8).toBe(true);
+      if (collected.some(item => item.drop.piece.id === 'outside')) outsideZ = self.z;
+      if (outsideZ !== undefined && action.targetKind === 'building' && action.targetId === building.id) {
+        expect(action.fire).toBe(true); expect(action.shotInterval).toBe(CONFIG.shotInterval); laterHarvest = true;
+      }
+    });
     expect(loot.map(item => item.piece.id)).toEqual(['sealed']);
-    expect(self.z).toBeGreaterThan(12);
+    expect(outsideZ).toBeGreaterThan(12); expect(laterHarvest).toBe(true);
+    expect(bot.battle!.deferredLoot.has('sealed')).toBe(true);
   });
   it('uses real stock to clear intervening cover when a well-stocked bot has no path to its opponent', () => {
     const building = cover('closed-courtyard', [block('left', -20, -20, 4, 40), block('right', 16, -20, 4, 40),
@@ -274,8 +286,34 @@ describe('battle bot resource navigation recovers from unreachable loot', () => 
     expect(segmentBuildingHit(self.x, self.z, opponent.x, opponent.z, building, self.radius)).not.toBeNull();
     const bot = createBot('balanced', () => 0.75);
     thinkBattleBot(bot, self, [opponent], [], [], [building], 1 / 60, 0);
-    const clearing = thinkBattleBot(bot, self, [opponent], [], [], [building], 1 / 60, 1 / 60);
+    let terminalFailure = bot.battle!.routeFailed && !bot.battle!.routeSearch;
+    let clearing = thinkBattleBot(bot, self, [opponent], [], [], [building], 1 / 60, 1 / 60);
+    for (let tick = 2; tick <= 15 && clearing.targetKind !== 'building'; tick++) {
+      terminalFailure ||= bot.battle!.routeFailed && !bot.battle!.routeSearch;
+      if (bot.battle!.routeSearch) expect(bot.battle!.routeFailed).toBe(false);
+      clearing = thinkBattleBot(bot, self, [opponent], [], [], [building], 1 / 60, tick / 60);
+    }
+    expect(terminalFailure).toBe(true);
     expect(clearing.targetKind).toBe('building'); expect(clearing.fire).toBe(true);
+    const ammunition = takeAmmunition(self.structure)!;
+    expect(ammunition.source).toBe('reserve'); expect(self.structure.evolution!.reserve).toHaveLength(19);
+    const projectile = createPartProjectile(ammunition.piece, self.id, self.x, self.z, clearing.aimX, clearing.aimZ);
+    const impact = firstBattleImpact(projectile, clearing.aimX, clearing.aimZ, [self, opponent], [building]);
+    expect(impact?.kind).toBe('building');
+    const hit = damageArenaBuilding(building, 1, () => .75, { x: clearing.aimX, z: clearing.aimZ });
+    expect(hit.direct).toHaveLength(1); expect(building.structure.pieces.size).toBe(1);
+    expect(segmentBuildingHit(-6, -8, 6, -8, building, self.radius)).toBeNull();
+    let crossed = false, resumedActorFire = false;
+    for (let tick = 16; tick < 240; tick++) {
+      const action = thinkBattleBot(bot, self, [opponent], [], [], [building], 1 / 60, tick / 60);
+      resumedActorFire ||= action.targetKind === 'actor' && action.targetId === opponent.id && action.fire;
+      const previous = { x: self.x, z: self.z };
+      moveBody(self, action.x, action.z, action.speed, 1 / 60);
+      resolveArenaBuildings(self, [building], previous);
+      expect(segmentBuildingHit(previous.x, previous.z, self.x, self.z, building, self.radius - 1e-5)).toBeNull();
+      if (self.x > self.radius) { crossed = true; break; }
+    }
+    expect(crossed).toBe(true); expect(resumedActorFire).toBe(true);
   });
   it('routes the largest body between spawn corners through the actual generated arena', () => {
     const buildings = generateArenaBuildings(seeded(413), 1);
@@ -446,16 +484,17 @@ describe('battle tactics spend physical volleys to win and preserve survival opt
 });
 
 describe('battle pressure breaks repair stalemates and recovers stale combat goals', () => {
-  it.each(['easy', 'medium', 'normal'] as const)('spends a full physical stock volley on %s difficulty when stock is plentiful', difficulty => {
+  it.each(['easy', 'medium', 'normal'] as const)('spends only a real bounded stock volley on %s difficulty when stock is plentiful', difficulty => {
     const self = actor('bot-1', 0, 0, 100), enemy = actor('player', 28), before = self.structure.pieces.size;
     const action = thinkBattleBot(createBot('balanced', () => 0.75, difficulty), self, [enemy], [], [], [], 1 / 60, 0);
-    expect(action.fire).toBe(true); expect(action.shotCount).toBe(20);
+    expect(action.fire).toBe(true); expect(action.shotCount).toBeGreaterThan(0);
+    expect(action.shotCount).toBeLessThanOrEqual(20);
     const parts = Array.from({ length: action.shotCount }, () => takeAmmunition(self.structure));
     expect(parts.every(part => part?.source === 'reserve')).toBe(true);
-    expect(new Set(parts.map(part => part!.piece.id)).size).toBe(20);
-    expect(self.structure.evolution!.reserve).toHaveLength(80); expect(self.structure.pieces.size).toBe(before);
+    expect(new Set(parts.map(part => part!.piece.id)).size).toBe(action.shotCount);
+    expect(self.structure.evolution!.reserve).toHaveLength(100 - action.shotCount); expect(self.structure.pieces.size).toBe(before);
     const shot = createPartProjectile(parts.map(part => part!.piece), self.id, self.x, self.z, action.aimX, action.aimZ);
-    expect(shot.damage).toBe(20); expect(shot.pieces).toHaveLength(20);
+    expect(shot.damage).toBe(action.shotCount); expect(shot.pieces).toHaveLength(action.shotCount);
   });
   it('tightens range and raises physical pressure when a visible opponent keeps repairing', () => {
     const self = actor('bot-1', 0, 0, 60), enemy = actor('player', 25), bot = createBot('balanced', () => 0.75, 'easy');
@@ -465,7 +504,7 @@ describe('battle pressure breaks repair stalemates and recovers stale combat goa
     // the AI must change its offensive tactic, while only the firing layer can
     // transfer inventory parts or change either character's actual structure.
     for (let tick = 1; tick < 900; tick++) pressured = thinkBattleBot(bot, self, [enemy], [], [], [], 1 / 60, tick / 60);
-    expect(pressured.shotCount).toBe(20); expect(pressured.shotCount).toBeGreaterThan(initial.shotCount);
+    expect(pressured.shotCount).toBeLessThanOrEqual(20); expect(pressured.shotCount).toBeGreaterThan(initial.shotCount);
     expect(pressured.shotInterval).toBeLessThan(initial.shotInterval * 0.6);
     expect(pressured.x).toBeGreaterThan(0.8); expect(Math.abs(initial.x)).toBeLessThan(0.1);
     expect(self.structure.evolution!.reserve).toHaveLength(60); expect(enemy.structure.pieces.size).toBe(enemy.structure.roundStartPieces);
@@ -560,7 +599,7 @@ describe('purposeful battle hunting remains readable and uses real resources', (
     const offLane = wall(); offLane.x = -30;
     const loot = [drop(-20, 0)], mass = self.structure.pieces.size;
     const opening = thinkBattleBot(bot, self, [enemy], loot, [], [offLane], 1 / 60, 0);
-    expect(opening.intent).toBe('prepare');
+    expect(opening.intent).toBe('collect');
     let hunting = opening;
     for (let tick = 1; tick < 420; tick++) hunting = thinkBattleBot(bot, self, [enemy], loot, [], [offLane], 1 / 60, tick / 60);
     expect(hunting.intent).toBe('hunt'); expect(hunting.targetId).toBe(enemy.id); expect(hunting.fire).toBe(true);

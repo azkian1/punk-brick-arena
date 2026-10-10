@@ -5,6 +5,20 @@ export interface Ammunition {
   piece: Piece;
   source: 'reserve' | 'body';
 }
+const stockProfiles = new WeakMap<Structure, { reserve: Piece[]; revision: number; length: number; coreId: string; count: number }>();
+/** Shared exact stock count. Identity, revision, length and Core changes invalidate it. */
+export function reserveAmmunitionCount(structure: Structure): number {
+  const evolution = structure.evolution;
+  if (!evolution) return 0;
+  const previous = stockProfiles.get(structure);
+  if (previous?.reserve === evolution.reserve && previous.revision === evolution.reserveRevision
+    && previous.length === evolution.reserve.length && previous.coreId === structure.coreId) return previous.count;
+  let count = 0;
+  for (const piece of evolution.reserve) if (piece.id !== structure.coreId) count++;
+  stockProfiles.set(structure, { reserve: evolution.reserve, revision: evolution.reserveRevision,
+    length: evolution.reserve.length, coreId: structure.coreId, count });
+  return count;
+}
 
 /** Transfer a real inventory part to a shot. The designated Core is never ammunition. */
 export function takeAmmunition(structure: Structure): Ammunition | null {

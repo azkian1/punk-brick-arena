@@ -1,6 +1,12 @@
 # Security audit
 
-Reviewed on 2026-10-06. Scope: the current local working tree and the static production output for a single-player browser game. There is no application backend, account system, authentication endpoint, wallet connection, payment flow, or database in this repository. Game state stays in memory. This review did not deploy the game.
+The original security review below is dated 2026-10-06 and describes that local working tree and static production output. The current **v2 Battle Royal patch** remains a single-player browser game: no application backend, account system, authentication endpoint, wallet connection, payment flow or database. Game state stays in memory. This documentation update did not deploy the game or repeat a live registry audit.
+
+## Current v2 publication checks, 2026-10-10
+
+After the final audit corrections, strict TypeScript/Vite build and `npm run security:check` pass all three guards and scan 140 working-tree text files / five production text files. No matched credential pattern or forbidden production path is reported. This count belongs to the recorded check before the present documentation edits. [Testing](TESTING.md) records the accepted final rule/browser results; [Development](DEVELOPMENT.md) describes current deployment and publication boundaries.
+
+The dependency audit, browser policy probes, local security-software observation and smaller file/test counts below are preserved historical evidence. Their 2026-10-06 results do not establish today's npm advisory state or remotely hosted HTTP headers.
 
 ## Dependency findings and remediation
 
@@ -67,11 +73,11 @@ After a fresh `npm run build`, run `npm run security:check`. It runs two Node gu
 
 The working-tree scan excludes `.git`, dependencies, npm/Vite caches, `artifacts/` and `dist/`; production output is scanned separately. It scans supported text extensions, not binary asset contents. Source symlinks are skipped; production symlinks fail the check. No Git-history secret scan, external account scan, malware analysis or credential-validity check was performed. Pattern matching cannot rule out arbitrary secrets, encoded values, credentials in binary files, or secrets in excluded history/artifacts.
 
-## Verification
+## Original security verification, 2026-10-06
 
 - Live full and production-only dependency audits: zero advisories after remediation.
 - Node guard tests: both passed; adversarial secret fixtures return categories without exposing values, and private/source publication paths are rejected.
-- `npm run security:check`: passed after production build; 96 working-tree text files and five production text files scanned in the latest check. No matched credential pattern or forbidden output path was found. File counts can change as review documentation is added.
+- `npm run security:check`: passed after the original production build; 96 working-tree text files and five production text files scanned in that check. No matched credential pattern or forbidden output path was found. Later check counts are recorded above and in [Testing](TESTING.md).
 - TypeScript check and Vite production build: passed on Node.js 24.11.0. The first sandbox build hit an `EPERM` realpath error; the required escalated retry succeeded.
 - Production application browser check: passed with headless Chrome and software WebGL against freshly rebuilt `dist/`. The normal game had zero page errors and zero CSP violation events. All application assets returned 200, audio unlocked after the start gesture, and WebGL initialized. Injected inline/external script and external-image probes were blocked. Forced no-WebGL startup displayed the styled fallback and its retry action reloaded successfully without CSP violations.
 - Direct loopback HTTP response: all configured security headers and the unmodified CSP meta matched the intended policy exactly.

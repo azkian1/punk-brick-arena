@@ -5,18 +5,81 @@ import { createStructure } from './game/structure';
 import { evolutionPlan } from './game/evolution';
 import { CharacterView, createArenaDots, createPieceProjectile, createRuneCube, disposePieceProjectile } from './render';
 import { projectilePartOffsets } from './game/projectiles';
+import { CONFIG } from './game/config';
+import type { Piece } from './game/types';
 
-it('renders a real twenty-part volley as one group with each original size and color', () => {
-  const pieces = CHARACTER_TEMPLATES[0].pieces.slice(0, 20), offsets = projectilePartOffsets(pieces);
-  const scene = new THREE.Scene(), group = createPieceProjectile(pieces);
-  expect(group.children).toHaveLength(20);
-  group.children.forEach((child, i) => {
-    expect(child.position.toArray()).toEqual([offsets[i].x, offsets[i].y, offsets[i].z]);
-    const body = child.children[0] as THREE.Mesh<THREE.BoxGeometry, THREE.MeshStandardMaterial>;
-    expect(body.material.color.getHexString()).toBe(new THREE.Color(pieces[i].color).getHexString());
-    expect(body.scale.toArray()).toEqual([pieces[i].size.x, pieces[i].size.y, pieces[i].size.z]);
+const projectilePieces = (count: number): Piece[] => Array.from({ length: count }, (_, i) => ({
+  ...CHARACTER_TEMPLATES[0].pieces[0], id: `volley/${i}`, position: { x: 14, y: 7, z: -3 },
+  size: [{ x: 2, y: 1.2, z: 2 }, { x: 1, y: .4, z: 1 }, { x: 2, y: .4, z: 1 }, { x: 1, y: 1.2, z: 2 }][i % 4],
+  color: ['#cc3311', '#12aabb', '#1122dd', '#ffffff'][i % 4],
+  shape: (['brick', 'brick', 'tile', 'slope'] as const)[i % 4],
+}));
+const expectVector = (actual: THREE.Vector3, expected: number[]) => actual.toArray().forEach((value, i) => expect(value).toBeCloseTo(expected[i], 5));
+const expectColor = (mesh: THREE.InstancedMesh, index: number, expected: string) => {
+  const actual = new THREE.Color(); mesh.getColorAt(index, actual);
+  const color = new THREE.Color(expected);
+  for (const key of ['r', 'g', 'b'] as const) expect(actual[key]).toBeCloseTo(color[key], 6);
+};
+
+it.each([1, 3, 20])('renders a %i-part volley in at most two batches with exact packed sizes, colors and studs', count => {
+  const pieces = projectilePieces(count), offsets = projectilePartOffsets(pieces), scale = CONFIG.characterScale;
+  const group = createPieceProjectile(count === 1 ? pieces[0] : pieces);
+  const body = group.getObjectByName('projectile-body') as THREE.InstancedMesh;
+  const studs = group.getObjectByName('projectile-studs') as THREE.InstancedMesh;
+  expect(group.children.length).toBeLessThanOrEqual(2);
+  expect(group.children.every(child => child instanceof THREE.InstancedMesh)).toBe(true);
+  expect(body.count).toBe(count); expect(body.material).toBe(studs.material);
+  expect(body.castShadow && studs.castShadow).toBe(true);
+  const matrix = new THREE.Matrix4(), position = new THREE.Vector3(), size = new THREE.Vector3(), rotation = new THREE.Quaternion();
+  let studIndex = 0;
+  pieces.forEach((piece, i) => {
+    body.getMatrixAt(i, matrix); matrix.decompose(position, rotation, size);
+    expectVector(position, [offsets[i].x, offsets[i].y, offsets[i].z]);
+    expectVector(size, [piece.size.x * scale, piece.size.y * scale, piece.size.z * scale]);
+    expect(rotation.toArray()).toEqual([0, 0, 0, 1]); expectColor(body, i, piece.color);
+    if (piece.shape === 'tile' || piece.shape === 'slope') return;
+    for (let x = 0; x < Math.floor(piece.size.x); x++) for (let z = 0; z < Math.floor(piece.size.z); z++) {
+      studs.getMatrixAt(studIndex, matrix); matrix.decompose(position, rotation, size);
+      expectVector(position, [offsets[i].x + (x + .5 - piece.size.x / 2) * scale,
+        offsets[i].y + (piece.size.y / 2 + .07) * scale, offsets[i].z + (z + .5 - piece.size.z / 2) * scale]);
+      expectVector(size, [scale, scale, scale]); expectColor(studs, studIndex++, piece.color);
+    }
   });
-  scene.add(group); disposePieceProjectile(scene, group); expect(scene.children).not.toContain(group);
+  expect(studs.count).toBe(studIndex);
+  expect(body.instanceMatrix.version).toBeGreaterThan(0); expect(body.instanceColor!.version).toBeGreaterThan(0);
+  disposePieceProjectile(new THREE.Scene(), group);
+});
+
+it('does not add studs to an all-tile/slope volley and preserves a single part under the flight rotation', () => {
+  const pieces = projectilePieces(4).slice(2), group = createPieceProjectile(pieces);
+  expect(group.children).toHaveLength(1);
+  expect((group.children[0] as THREE.InstancedMesh).count).toBe(2);
+  const single = createPieceProjectile(projectilePieces(1)[0]);
+  single.position.set(8, 3.2, -6); single.rotation.y = .7; single.updateMatrixWorld(true);
+  const body = single.getObjectByName('projectile-body') as THREE.InstancedMesh, matrix = new THREE.Matrix4();
+  body.getMatrixAt(0, matrix); matrix.premultiply(body.matrixWorld);
+  const expected = new THREE.Matrix4().compose(single.position, single.quaternion,
+    new THREE.Vector3(2, 1.2, 2).multiplyScalar(CONFIG.characterScale));
+  matrix.elements.forEach((value, i) => expect(value).toBeCloseTo(expected.elements[i], 5));
+  disposePieceProjectile(new THREE.Scene(), group); disposePieceProjectile(new THREE.Scene(), single);
+});
+
+it('releases per-volley instance buffers while keeping shared geometry/material and other active volleys alive', () => {
+  const scene = new THREE.Scene(), first = createPieceProjectile(projectilePieces(20)), other = createPieceProjectile(projectilePieces(3));
+  scene.add(first, other);
+  const meshes = first.children as THREE.InstancedMesh[], second = other.children[0] as THREE.InstancedMesh;
+  const disposed = meshes.map(() => 0); let geometryDisposes = 0, materialDisposes = 0;
+  const onGeometry = () => geometryDisposes++, onMaterial = () => materialDisposes++;
+  meshes.forEach((mesh, i) => { mesh.addEventListener('dispose', () => disposed[i]++); mesh.geometry.addEventListener('dispose', onGeometry); });
+  const material = meshes[0].material as THREE.Material; material.addEventListener('dispose', onMaterial);
+  expect(meshes.every(mesh => mesh.material === second.material)).toBe(true);
+  const retainedMatrix = [...second.instanceMatrix.array], retainedColors = [...second.instanceColor!.array];
+  disposePieceProjectile(scene, first);
+  expect(scene.children).not.toContain(first); expect(scene.children).toContain(other);
+  expect(disposed).toEqual([1, 1]); expect(geometryDisposes).toBe(0); expect(materialDisposes).toBe(0);
+  expect([...second.instanceMatrix.array]).toEqual(retainedMatrix); expect([...second.instanceColor!.array]).toEqual(retainedColors);
+  meshes.forEach(mesh => mesh.geometry.removeEventListener('dispose', onGeometry)); material.removeEventListener('dispose', onMaterial);
+  disposePieceProjectile(scene, other);
 });
 
 it('makes the center rune a metallic cube assembled from 27 bricks', () => {
@@ -25,7 +88,9 @@ it('makes the center rune a metallic cube assembled from 27 bricks', () => {
     expect(cube.material.metalness).toBeGreaterThan(.8);
     expect(cube.position.toArray().every(n => Math.abs(n) <= .93)).toBe(true);
   }
-  disposePieceProjectile(new THREE.Scene(), rune);
+  let disposed = 0; const material = (rune.children[0] as THREE.Mesh).material as THREE.Material;
+  material.addEventListener('dispose', () => disposed++);
+  disposePieceProjectile(new THREE.Scene(), rune); expect(disposed).toBe(1);
 });
 
 it('keeps every marker of the enlarged arena inside its GPU instance buffer', () => {

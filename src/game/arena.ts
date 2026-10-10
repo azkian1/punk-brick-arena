@@ -1,5 +1,7 @@
 import { CONFIG } from './config';
 import { segmentCircleHit } from './collision';
+import templates from '../assets/templates.generated.json';
+import evolutions from '../assets/evolutions.generated.json';
 import type { MovingBody } from './movement';
 import { contactGraph, getBounds } from './structure';
 import type { DamageResult, Piece, Random, Structure, Vec3 } from './types';
@@ -7,6 +9,21 @@ import type { DamageResult, Piece, Random, Structure, Vec3 } from './types';
 const EPSILON = 1e-6;
 /** Clears the largest authored form (24.2 world radius), with traversal margin. */
 export const ARENA_ROUTE_HALF_WIDTH = 26;
+export const MAX_ARENA_BUILDING_PIECES = 600;
+/** The actual oriented collectible types, including authored tiles. */
+export const ARENA_PART_TYPES: readonly { size: Vec3; shape: Piece['shape'] }[] = (() => {
+  const types = new Map<string, { size: Vec3; shape: Piece['shape'] }>();
+  const add = (size: Vec3, shape: Piece['shape']): void => {
+    const key = [size.x, size.y, size.z, shape].join(':');
+    types.set(key, { size: { ...size }, shape });
+  };
+  for (const template of templates) for (const piece of template.pieces) add(piece.size, piece.shape as Piece['shape']);
+  // Read raw slots here: importing evolution plans would create an arena/evolution cycle.
+  for (const evolution of evolutions) for (const slot of evolution.slots) {
+    add({ x: slot[3], y: slot[4], z: slot[5] }, slot[4] < 1 ? 'plate' : 'brick');
+  }
+  return [...types.values()];
+})();
 const PALETTES = [
   ['#5c6870', '#f5c842', '#de5c42', '#88a078'],
   ['#8a7773', '#ffb742', '#454d59', '#bdcfcc'],
@@ -91,51 +108,159 @@ function withSupportGraph(building: ArenaBuilding): Geometry {
   }
   return cached;
 }
-function templatePieces(id: string, template: ArenaTemplate, random: Random): Piece[] {
-  const width = template === 'wall' || template === 'arch' ? integer(random, 16, 24) : integer(random, 8, 14);
-  const depth = template === 'wall' || template === 'arch' ? integer(random, 2, 4) : integer(random, 8, 12);
-  const height = template === 'tower' ? integer(random, 15, 27) : template === 'arch' ? integer(random, 8, 12) : integer(random, 3, 7);
-  const palette = PALETTES[integer(random, 0, PALETTES.length - 1)];
-  const heights: number[][] = Array.from({ length: width }, () => Array(depth).fill(0));
-  for (let x = 0; x < width; x++) for (let z = 0; z < depth; z++) {
-    if (template === 'wall') heights[x][z] = Math.max(1, height - Math.floor(x / Math.max(3, width / 3)) + integer(random, 0, 1));
-    else if (template === 'tower') {
-      if (x < 2 || z < 2 || x >= width - 2 || z >= depth - 2) heights[x][z] = height + integer(random, -2, 3);
-    } else if (template === 'ruin') {
-      if (x < 2 || z < 2 || x >= width - 2 || (x === Math.floor(width / 2) && z < depth * 0.65)) heights[x][z] = integer(random, 1, height + 3);
-    } else if (template === 'steps') heights[x][z] = 1 + Math.floor(x / width * height) + (z < 2 ? integer(random, 0, 2) : 0);
-    else if (x < 3 || x >= width - 3) heights[x][z] = height;
-  }
-  const levels = Math.max(...heights.flat()), pieces: Piece[] = [], rotated = integer(random, 0, 3);
-  const add = (x: number, y: number, z: number, sx: number, sy: number, sz: number): void => {
-    let px = x - width / 2, pz = z - depth / 2;
-    if (rotated === 1) { const oldX = px; px = -pz - sz; pz = oldX; [sx, sz] = [sz, sx]; }
-    else if (rotated === 2) { px = -px - sx; pz = -pz - sz; }
-    else if (rotated === 3) { const oldX = px; px = pz; pz = -oldX - sx; [sx, sz] = [sz, sx]; }
-    pieces.push({ id: id + '/piece-' + pieces.length, position: { x: px, y: Math.round(y * 10) / 10, z: pz },
-      size: { x: sx, y: sy, z: sz }, color: palette[integer(random, 0, palette.length - 1)], shape: sy < 1 ? 'plate' : 'brick' });
+type ArenaPartType = typeof ARENA_PART_TYPES[number];
+const partType = (x: number, y: number, z: number, shape: Piece['shape'] = y < 1 ? 'plate' : 'brick'): ArenaPartType =>
+  ARENA_PART_TYPES.find(type => type.size.x === x && type.size.y === y && type.size.z === z && type.shape === shape)!;
+const BRICK_TYPES = ARENA_PART_TYPES.filter(type => type.shape === 'brick');
+const WIDE_FLAT_TYPES = ARENA_PART_TYPES.filter(type => type.size.y < 1 && type.size.x * type.size.z >= 6);
+const HEIGHT_UNIT = 0.4;
+/** Bounded height-field packing permits real cantilevers without overlapping boxes. */
+function templatePieces(id: string, template: ArenaTemplate, random: Random, mandatory: readonly ArenaPartType[]): Piece[] {
+  const mandatoryWidth = mandatory.reduce((sum, type) => sum + type.size.x, 0);
+  const width = Math.max(mandatoryWidth + 2, template === 'wall' || template === 'arch' ? integer(random, 18, 24) : integer(random, 10, 18));
+  const depth = Math.max(...mandatory.map(type => type.size.z + 2), template === 'wall' ? integer(random, 8, 12) : integer(random, 10, 14));
+  const minX = -Math.floor(width / 2), minZ = -Math.floor(depth / 2), maxX = minX + width, maxZ = minZ + depth;
+  const heights = new Int16Array(width * depth), targets = new Int16Array(width * depth);
+  const floors: (Piece | undefined)[] = Array(width * depth);
+  const pieces: Piece[] = [], palette = PALETTES[integer(random, 0, PALETTES.length - 1)];
+  const index = (x: number, z: number) => (x - minX) * depth + z - minZ;
+  const inBounds = (x: number, z: number, sx = 1, sz = 1) => x >= minX && z >= minZ && x + sx <= maxX && z + sz <= maxZ;
+  const topAt = (x: number, z: number, sx: number, sz: number): number => {
+    let top = 0;
+    for (let dx = 0; dx < sx; dx++) for (let dz = 0; dz < sz; dz++) top = Math.max(top, heights[index(x + dx, z + dz)]);
+    return top;
   };
-  for (let level = 0; level < levels; level++) {
-    const layers = randomUnit(random) < 0.25 ? 3 : 1;
-    for (let layer = 0; layer < layers; layer++) {
-      const cells = new Set<string>();
-      for (let x = 0; x < width; x++) for (let z = 0; z < depth; z++) {
-        if (heights[x][z] > level || (template === 'arch' && level >= height - 2)) cells.add(x + ':' + z);
+  const faceContact = (a: Piece, b: Piece): boolean => (['x', 'y', 'z'] as const).some(axis =>
+    (Math.abs(a.position[axis] + a.size[axis] - b.position[axis]) < EPSILON ||
+      Math.abs(b.position[axis] + b.size[axis] - a.position[axis]) < EPSILON) &&
+    (['x', 'y', 'z'] as const).every(other => other === axis ||
+      Math.min(a.position[other] + a.size[other], b.position[other] + b.size[other]) -
+      Math.max(a.position[other], b.position[other]) > EPSILON));
+  const place = (type: ArenaPartType, x: number, z: number, prescribedY?: number): Piece | undefined => {
+    if (pieces.length >= MAX_ARENA_BUILDING_PIECES) return;
+    const { x: sx, z: sz } = type.size;
+    if (!inBounds(x, z, sx, sz)) return;
+    const top = topAt(x, z, sx, sz), y = prescribedY ?? top;
+    if (y < top) return;
+    const piece: Piece = { id: id + '/piece-' + pieces.length, position: { x, y: Math.round(y * HEIGHT_UNIT * 10) / 10, z },
+      size: { ...type.size }, shape: type.shape, color: palette[integer(random, 0, palette.length - 1)] };
+    let supported = !pieces.length;
+    if (y === top && y > 0) supported = true; // At least one positive-area cell touches its actual top owner.
+    if (!supported && y === 0) {
+      for (let dx = 0; dx < sx && !supported; dx++) for (const nz of [z - 1, z + sz]) {
+        if (inBounds(x + dx, nz) && floors[index(x + dx, nz)]) { supported = true; break; }
       }
-      for (let x = 0; x < width; x++) for (let z = 0; z < depth; z++) {
-        if (!cells.delete(x + ':' + z)) continue;
-        let sx = 1, sz = 1;
-        const pairX = randomUnit(random) < 0.5;
-        if (randomUnit(random) < 0.72) {
-          if (pairX && cells.delete((x + 1) + ':' + z)) sx = 2;
-          else if (!pairX && cells.delete(x + ':' + (z + 1))) sz = 2;
-        }
-        if (sx === 2 && cells.has(x + ':' + (z + 1)) && cells.has((x + 1) + ':' + (z + 1)) && randomUnit(random) < 0.25) {
-          cells.delete(x + ':' + (z + 1)); cells.delete((x + 1) + ':' + (z + 1)); sz = 2;
-        }
-        add(x, level * 1.2 + layer * 0.4, z, sx, layers === 3 ? 0.4 : 1.2, sz);
+      for (let dz = 0; dz < sz && !supported; dz++) for (const nx of [x - 1, x + sx]) {
+        if (inBounds(nx, z + dz) && floors[index(nx, z + dz)]) { supported = true; break; }
       }
     }
+    // Authored horizontal branches/lintels can be attached through a side face.
+    if (!supported && prescribedY !== undefined) supported = pieces.some(other => faceContact(piece, other));
+    if (!supported) return;
+    pieces.push(piece);
+    const end = y + Math.round(type.size.y / HEIGHT_UNIT);
+    for (let dx = 0; dx < sx; dx++) for (let dz = 0; dz < sz; dz++) {
+      const cell = index(x + dx, z + dz); heights[cell] = end;
+      if (y === 0) floors[cell] = piece;
+    }
+    return piece;
+  };
+  // Two or three mandatory types per accepted building cover the complete map catalogue.
+  // Their differently sized floor rectangles touch at a face around the same centerline.
+  let cursor = -Math.floor(mandatoryWidth / 2);
+  for (const type of mandatory) { place(type, cursor, -Math.floor(type.size.z / 2), 0); cursor += type.size.x; }
+  const base = Math.max(...mandatory.map(type => Math.round(type.size.y / HEIGHT_UNIT)));
+  const highest = pieces.find(piece => Math.round(piece.size.y / HEIGHT_UNIT) === base)!;
+  const spineStart = Math.max(minX, Math.min(maxX - 8, Math.floor(highest.position.x + highest.size.x / 2) - 4));
+  place(partType(8, 0.4, 2), spineStart, -1, base);
+  // A broken platform connects the remote posts, while leaving irregular edges around it.
+  for (const direction of [-1, 1]) {
+    let edge = direction < 0 ? spineStart : spineStart + 8;
+    while (direction < 0 ? edge > minX : edge < maxX) {
+      const remaining = direction < 0 ? edge - minX : maxX - edge;
+      const length = [8, 6, 4, 3, 2, 1].find(size => size <= remaining)!;
+      place(partType(length, 0.4, 2), direction < 0 ? edge - length : edge, -1, base);
+      edge += direction * length;
+    }
+  }
+  const platformY = base + 1;
+  const column = (x: number, z: number, top: number, type = partType(2, 1.2, 2)): void => {
+    for (let count = 0; count < 40 && topAt(x, z, type.size.x, type.size.z) < top; count++) {
+      if (!place(type, x, z)) break;
+    }
+  };
+  const tallHeight = integer(random, 54, 90), lowHeight = integer(random, 8, 17);
+  const branchX = integer(random, minX + 2, maxX - 4), branchZ = integer(random, minZ + 2, maxZ - 4);
+  for (let x = minX; x < maxX; x++) for (let z = minZ; z < maxZ; z++) {
+    let target = 0;
+    const edge = x < minX + 3 || x >= maxX - 3 || z < minZ + 2 || z >= maxZ - 2;
+    if (template === 'wall') {
+      const strip = z >= -2 && z <= 1, arm = Math.abs(x - branchX) < 2 && z < 4;
+      if (strip || arm) target = integer(random, 14, 32) - Math.floor((x - minX) / width * 4) * 3;
+    } else if (template === 'tower') {
+      target = edge ? integer(random, 18, tallHeight) : integer(random, 3, 13);
+      if (Math.abs(x - branchX) < 3 && Math.abs(z - branchZ) < 3) target = tallHeight - integer(random, 0, 12);
+    } else if (template === 'ruin') {
+      if (edge || Math.abs(x - branchX) < 2 || (z >= -2 && z <= 1)) target = integer(random, 2, lowHeight);
+    } else if (template === 'steps') {
+      target = 2 + Math.floor((x - minX) / width * lowHeight) + integer(random, 0, 3);
+      if (z < branchZ) target = Math.max(1, target - integer(random, 2, 6));
+    } else {
+      target = (x < minX + 4 || x >= maxX - 4) && z >= -2 && z <= 2 ? integer(random, 25, 42) : integer(random, 1, 4);
+    }
+    if (randomUnit(random) < 0.14 && z !== 0) target = 0;
+    targets[index(x, z)] = target;
+  }
+  if (template === 'tower') {
+    column(-1, -1, tallHeight);
+    column(branchX, -1, integer(random, 18, tallHeight - 8));
+    // Broad real beams make the skinny towers read as crooked, branching constructions.
+    place(partType(8, 1.2, 2), -4, -1);
+    place(partType(2, 0.4, 8), -1, -4);
+  } else if (template === 'wall') {
+    const count = integer(random, 3, 5);
+    for (let i = 0; i < count; i++) {
+      const x = minX + Math.floor(i * (width - 2) / count), z = integer(random, -1, 0);
+      column(x, z, platformY + integer(random, 10, 25) - i * 2);
+    }
+    place(partType(1, 0.4, 8), branchX, -4);
+  } else if (template === 'arch') {
+    const left = minX + 1, right = maxX - 3, levels = integer(random, 9, 14), lintelY = platformY + levels * 3;
+    column(left, -1, lintelY); column(right, -1, lintelY);
+    let x = left;
+    while (x < right + 2) {
+      const remaining = right + 2 - x, length = [8, 6, 4, 3, 2, 1].find(size => size <= remaining)!;
+      place(partType(length, 1.2, 2), x, -1, lintelY); x += length;
+    }
+    place(partType(2, 0.4, 8), left, -4);
+  }
+  const quantity = template === 'tower' ? integer(random, 130, 560) : template === 'wall' ? integer(random, 50, 440) :
+    template === 'arch' ? integer(random, 65, 380) : template === 'steps' ? integer(random, 35, 330) : integer(random, 20, 220);
+  const targetQuantity = Math.min(MAX_ARENA_BUILDING_PIECES, Math.max(pieces.length, quantity));
+  for (let attempt = 0; attempt < targetQuantity * 24 && pieces.length < targetQuantity; attempt++) {
+    const choice = randomUnit(random), pool = choice < 0.34 ? BRICK_TYPES : choice < 0.65 ? WIDE_FLAT_TYPES : ARENA_PART_TYPES;
+    const type = pool[integer(random, 0, pool.length - 1)];
+    const { x: sx, z: sz } = type.size;
+    let x: number, z: number;
+    if (randomUnit(random) < 0.7) {
+      const anchor = pieces[integer(random, 0, pieces.length - 1)];
+      x = anchor.position.x + integer(random, 0, anchor.size.x - 1) - integer(random, 0, sx - 1);
+      z = anchor.position.z + integer(random, 0, anchor.size.z - 1) - integer(random, 0, sz - 1);
+    } else { x = integer(random, minX, maxX - sx); z = integer(random, minZ, maxZ - sz); }
+    if (!inBounds(x, z, sx, sz)) continue;
+    const y = topAt(x, z, sx, sz);
+    let active = 0, limit = 0;
+    for (let dx = 0; dx < sx; dx++) for (let dz = 0; dz < sz; dz++) {
+      const target = targets[index(x + dx, z + dz)]; if (target) active++; limit = Math.max(limit, target);
+    }
+    if (active < sx * sz * 0.6 || y + Math.round(type.size.y / HEIGHT_UNIT) > limit) continue;
+    place(type, x, z);
+  }
+  // Reflections diversify silhouettes without inventing an unavailable 2x1.2x8 brick orientation.
+  const flipX = randomUnit(random) < 0.5, flipZ = randomUnit(random) < 0.5;
+  for (const piece of pieces) {
+    if (flipX) piece.position.x = -piece.position.x - piece.size.x;
+    if (flipZ) piece.position.z = -piece.position.z - piece.size.z;
   }
   return pieces;
 }
@@ -146,6 +271,12 @@ export function generateArenaBuildings(random: Random = Math.random, roundNumber
   for (let x = -limitX; x <= limitX; x += 8) for (let z = -limitZ; z <= limitZ; z += 8) cells.push({ x, z });
   shuffle(cells, random);
   const templates: ArenaTemplate[] = shuffle(['wall', 'tower', 'ruin', 'steps', 'arch'], random);
+  const catalogue = shuffle([...ARENA_PART_TYPES], random), mandatoryTypes: ArenaPartType[][] = [];
+  let catalogueCursor = 0;
+  for (let i = 0; i < 20; i++) {
+    const count = Math.floor(catalogue.length / 20) + (i < catalogue.length % 20 ? 1 : 0);
+    mandatoryTypes.push(catalogue.slice(catalogueCursor, catalogueCursor + count)); catalogueCursor += count;
+  }
   const buildings: ArenaBuilding[] = [];
   const spawns = [-1, 1].flatMap(x => [-1, 1].map(z => ({
     x: x * CONFIG.arenaWidth * 0.36, z: z * CONFIG.arenaDepth * 0.36,
@@ -153,7 +284,7 @@ export function generateArenaBuildings(random: Random = Math.random, roundNumber
   // Cycle accepted templates so every layout starts with all five construction types.
   for (let attempt = 0; attempt < 30 && buildings.length < 20; attempt++) {
     const template = templates[buildings.length % templates.length], id = 'arena-round-' + roundNumber + '/building-' + buildings.length;
-    const pieces = templatePieces(id, template, random);
+    const pieces = templatePieces(id, template, random, mandatoryTypes[buildings.length]);
     const structure: Structure = { pieces: new Map(pieces.map(piece => [piece.id, piece])), coreId: pieces[0].id,
       vacancies: [], revision: 0, roundStartPieces: pieces.length, coreExposed: true };
     const building: ArenaBuilding = { id, template, structure, bounds: getBounds(structure), x: 0, z: 0 };
@@ -221,9 +352,11 @@ export function damageArenaBuilding(building: ArenaBuilding, power: number, rand
   cached.boxes = footprint(building.structure.pieces); cached.revision = building.structure.revision;
   return { direct, cascade, eliminated: building.structure.pieces.size === 0 };
 }
-function segmentBoxHit(ax: number, az: number, bx: number, bz: number, box: Box): number | null {
+function segmentRectHit(ax: number, az: number, bx: number, bz: number, minX: number, maxX: number, minZ: number, maxZ: number): number | null {
   let enter = 0, exit = 1;
-  for (const [start, delta, min, max] of [[ax, bx - ax, box.minX, box.maxX], [az, bz - az, box.minZ, box.maxZ]]) {
+  for (let axis = 0; axis < 2; axis++) {
+    const start = axis ? az : ax, delta = axis ? bz - az : bx - ax;
+    const min = axis ? minZ : minX, max = axis ? maxZ : maxX;
     if (Math.abs(delta) < EPSILON) { if (start < min - EPSILON || start > max + EPSILON) return null; }
     else {
       const a = (min - start) / delta, b = (max - start) / delta;
@@ -233,15 +366,24 @@ function segmentBoxHit(ax: number, az: number, bx: number, bz: number, box: Box)
   }
   return enter >= 0 && enter <= 1 ? enter : null;
 }
+function segmentBoxHit(ax: number, az: number, bx: number, bz: number, box: Box): number | null {
+  return segmentRectHit(ax, az, bx, bz, box.minX, box.maxX, box.minZ, box.maxZ);
+}
 /** Exact swept circle against a box: face strips plus round corners. */
 function segmentRoundedBoxHit(ax: number, az: number, bx: number, bz: number, box: Box, radius: number): number | null {
   if (radius <= EPSILON) return segmentBoxHit(ax, az, bx, bz, box);
-  const hits = [
-    segmentBoxHit(ax, az, bx, bz, { ...box, minX: box.minX - radius, maxX: box.maxX + radius }),
-    segmentBoxHit(ax, az, bx, bz, { ...box, minZ: box.minZ - radius, maxZ: box.maxZ + radius }),
-    ...[box.minX, box.maxX].flatMap(x => [box.minZ, box.maxZ].map(z => segmentCircleHit(ax, az, bx, bz, x, z, radius))),
-  ].filter((hit): hit is number => hit !== null);
-  return hits.length ? Math.min(...hits) : null;
+  // The expanded rectangle is only a rejection broadphase. Exact rounded
+  // corners and face strips below retain holes, tangent contacts and fractions.
+  if (segmentRectHit(ax, az, bx, bz, box.minX - radius, box.maxX + radius, box.minZ - radius, box.maxZ + radius) === null) return null;
+  const first = Math.min(
+    segmentRectHit(ax, az, bx, bz, box.minX - radius, box.maxX + radius, box.minZ, box.maxZ) ?? Infinity,
+    segmentRectHit(ax, az, bx, bz, box.minX, box.maxX, box.minZ - radius, box.maxZ + radius) ?? Infinity,
+    segmentCircleHit(ax, az, bx, bz, box.minX, box.minZ, radius) ?? Infinity,
+    segmentCircleHit(ax, az, bx, bz, box.minX, box.maxZ, radius) ?? Infinity,
+    segmentCircleHit(ax, az, bx, bz, box.maxX, box.minZ, radius) ?? Infinity,
+    segmentCircleHit(ax, az, bx, bz, box.maxX, box.maxZ, radius) ?? Infinity,
+  );
+  return first === Infinity ? null : first;
 }
 function translated(box: Box, building: ArenaBuilding): Box {
   return { minX: box.minX + building.x, maxX: box.maxX + building.x, minZ: box.minZ + building.z, maxZ: box.maxZ + building.z };
@@ -251,9 +393,10 @@ export function segmentBuildingHit(ax: number, az: number, bx: number, bz: numbe
   if (!building.structure.pieces.size) return null;
   const radius = Math.max(0, projectileRadius);
   if (segmentRoundedBoxHit(ax, az, bx, bz, worldBounds(building), radius) === null) return null;
+  const localAx = ax - building.x, localAz = az - building.z, localBx = bx - building.x, localBz = bz - building.z;
   let first: number | null = null;
   for (const local of geometry(building).boxes) {
-    const hit = segmentRoundedBoxHit(ax, az, bx, bz, translated(local, building), radius);
+    const hit = segmentRoundedBoxHit(localAx, localAz, localBx, localBz, local, radius);
     if (hit !== null && (first === null || hit < first)) first = hit;
   }
   return first;

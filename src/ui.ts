@@ -85,6 +85,7 @@ export class GameUI {
   private screen: Screen = 'lobby';
   private shotCount = 1;
   private dashAvailable = true;
+  private suppressDashPointerClick = false;
   private joystickPointer: number | null = null;
 
   constructor(private readonly root: HTMLElement, templates: CharacterTemplate[], callbacks: Callbacks) {
@@ -212,6 +213,14 @@ export class GameUI {
     shotControl.addEventListener('pointerdown', event => event.stopPropagation());
     shotControl.addEventListener('pointermove', event => event.stopPropagation());
     shotControl.addEventListener('keydown', event => { if (event.key !== 'Tab') event.stopPropagation(); });
+    this.element.querySelector<HTMLButtonElement>('[data-action="dash"]')!.addEventListener('pointerdown', event => {
+      if (event.pointerType === 'mouse') { this.suppressDashPointerClick = false; return; }
+      if (event.pointerType !== 'touch' && event.pointerType !== 'pen') return;
+      // Non-primary touches do not produce a compatibility click. Activate now,
+      // and suppress the later click when this touch is the primary pointer.
+      event.preventDefault(); event.stopPropagation(); this.suppressDashPointerClick = true;
+      if (this.screen === 'playing' && this.dashAvailable) this.callbacks.onDash?.();
+    });
     this.element.addEventListener('click', (event) => {
       const target = (event.target as Element).closest<HTMLButtonElement>('button');
       if (!target) return;
@@ -240,7 +249,16 @@ export class GameUI {
         case 'pause':
         case 'resume': this.callbacks.onPause(); break;
         case 'mute': this.callbacks.onMute(); break;
-        case 'dash': if (this.screen === 'playing' && this.dashAvailable) this.callbacks.onDash?.(); break;
+        case 'dash':
+          // Native touch clicks can have detail=0, just like keyboard activation.
+          // Their pointer type (or compatibility source) distinguishes the two.
+          if (this.suppressDashPointerClick && (
+            ['touch', 'pen'].includes((event as PointerEvent).pointerType)
+            || (event as MouseEvent & { sourceCapabilities?: { firesTouchEvents: boolean } | null }).sourceCapabilities?.firesTouchEvents
+            || event.detail > 0
+          )) { this.suppressDashPointerClick = false; break; }
+          if (this.screen === 'playing' && this.dashAvailable) this.callbacks.onDash?.();
+          break;
       }
     });
     this.element.addEventListener('input', (event) => {

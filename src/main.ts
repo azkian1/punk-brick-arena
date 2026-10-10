@@ -5,12 +5,14 @@ import { newBattleRound, nextBattleRound, battleWinner, playerBattleOutcome, rel
 import { CONFIG } from './game/config';
 import { firstBattleImpact } from './game/battle-combat';
 import { collectNearbyDrops, pickupRadiusForBounds, type PickupState } from './game/pickup';
+import { groundIndex } from './game/ground-index';
 import { createDash, startDash, movePlayer, moveDashingBody, clampToArena, type DashState } from './game/movement';
 import { BOT_LABELS, BOT_DIFFICULTIES, createBot, thinkBattleBot, type BotState } from './game/bots';
 import { createBotSquad, coordinateBotSquad, battleTeamId, areBattleAllies, type BotSquadRole } from './game/bot-squad';
 import { createVictoryCollection, stepVictoryCollection, type VictoryCollection } from './game/victory';
 import { assembleReserve, evolutionProgress } from './game/evolution';
-import { DebrisStack, debrisFloorY, debrisRenderSize } from './game/debris';
+import { debrisFloorY, debrisRenderSize } from './game/debris';
+import { createBuildingDebris, debrisRadius, findNearbyDebrisPosition, clampDebrisToArena, stepDebrisPhysics, type MovingDebris } from './game/debris-motion';
 import { takeAmmunitionBatch } from './game/ammunition';
 import { createPartProjectile, stepPartProjectile, projectilePartOffsets, SHOT_PICKUP_LOCK, type PartProjectile } from './game/projectiles';
 import { createRune, stepRune, collectRune } from './game/rune';
@@ -31,7 +33,7 @@ interface Actor {
   squadRole: BotSquadRole; desiredShotCount: number; lastShotCount: number; shotsFired: number; dashStarts: number;
 }
 interface Shot extends PartProjectile { owner: Actor; mesh: THREE.Group }
-interface Drop extends PickupState { piece: Piece; x: number; y: number; z: number; vx: number; vy: number; vz: number; rotation: number; skipAgeOnce?: boolean }
+interface Drop extends PickupState, MovingDebris { skipAgeOnce?: boolean }
 interface Particle { x: number; y: number; z: number; vx: number; vy: number; vz: number; life: number; max: number; color: THREE.Color; scale: number }
 interface Stats { elapsed: number; repairs: number; growth: number; shots: number; hits: number; direct: number; cascade: number }
 const combatEvents: { ownerId: string; targetId: string; kind: 'actor' | 'building'; time: number }[] = [];
@@ -81,6 +83,13 @@ let victory: VictoryCollection<Drop> | null = null;
 let resumePhase: 'playing' | 'collecting' = 'playing';
 let toastDelay = 0;
 let firing = false;
+let firePointerId: number | null = null;
+function stopFiring(pointerId?: number) {
+  if (pointerId !== undefined && pointerId !== firePointerId) return;
+  const previous = firePointerId;
+  firePointerId = null; firing = false;
+  if (previous !== null && canvas.hasPointerCapture(previous)) canvas.releasePointerCapture(previous);
+}
 let aim = new THREE.Vector3(18, 0, 0);
 let pointerPosition = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
 let touchMovement = { x: 0, z: 0 };
@@ -154,7 +163,7 @@ function clearRound() {
   combatEvents.length = 0;
   renderedDrops = [];
   if (droppedView.instanceMatrix.count > initialDropCapacity * 4) resizeDropView(initialDropCapacity);
-  keys.clear(); firing = false; dashRequested = false; touchMovement = { x: 0, z: 0 };
+  keys.clear(); stopFiring(); dashRequested = false; touchMovement = { x: 0, z: 0 };
   dash = createDash(); victory = null; playerPlacement = 1;
   squad = createBotSquad();
   rune = createRune(); runeView.visible = false;
@@ -206,7 +215,7 @@ function beginRound(state: BattleRound) {
   renderer.setPreviewMode(false);
   const challenge = state.number === 1 ? 'Every fighter for themselves'
     : state.number === 2 ? `${actors[1].template.name} + ${actors[2].template.name} are allied`
-    : state.number === 3 ? 'All three bots are allied against you' : 'Bot squad · Two attackers, one collector';
+    : state.number === 3 ? 'All three bots are allied against you' : 'Bot squad · Crossfire, growth and recovery';
   ui.toast(`Round ${state.number} · ${challenge}`, 'repair');
   updateUI();
   canvas.focus();
@@ -224,7 +233,7 @@ function togglePause() {
   if (phase !== 'playing' && phase !== 'collecting' && phase !== 'paused') return;
   if (phase === 'paused') phase = resumePhase;
   else { resumePhase = phase; phase = 'paused'; }
-  firing = false; dashRequested = false; keys.clear(); ui.setScreen(phase);
+  stopFiring(); dashRequested = false; keys.clear(); ui.setScreen(phase);
   if (phase !== 'paused') { sound.unlock(); canvas.focus(); }
 }
 function toggleMute() { sound.muted = !sound.muted; ui.setMuted(sound.muted); updateUI(); }
@@ -232,9 +241,10 @@ function alive(actor: Actor): boolean { return actor.structure.pieces.has(actor.
 function projectileDrops(shot: Shot): Drop[] {
   const offsets = projectilePartOffsets(shot.pieces);
   return shot.pieces.map((piece, i) => {
-    const position = { x: shot.x + offsets[i].x, z: shot.z + offsets[i].z, vx: 0, vz: 0,
-      radius: Math.hypot(piece.size.x, piece.size.z) * CONFIG.characterScale / 2 };
-    resolveArenaBuildings(position, buildings); clampToArena(position);
+    const position = { piece, x: shot.x + offsets[i].x, z: shot.z + offsets[i].z };
+    clampDebrisToArena(position);
+    const clear = findNearbyDebrisPosition(position, debrisRadius(piece), buildings);
+    if (clear) { position.x = clear.x; position.z = clear.z; }
     return { piece, ownerId: shot.ownerId, x: position.x, y: Math.max(debrisFloorY(piece), shot.y + offsets[i].y), z: position.z,
       vx: 0, vy: Math.min(0, shot.vy), vz: 0, age: shot.age, settled: false,
       rotation: Math.random() * Math.PI, lockedUntilAge: SHOT_PICKUP_LOCK, skipAgeOnce: true };
@@ -251,13 +261,13 @@ function eliminate(actor: Actor) {
   burst(actor.x, 3, actor.z, 50, '#ed7c47');
   if (actor.id === 'player') {
     playerPlacement = actors.filter(alive).length + 1;
-    firing = false; dashRequested = false; keys.clear(); dash.remaining = 0;
+    stopFiring(); dashRequested = false; keys.clear(); dash.remaining = 0;
   } else ui.toast(`${actor.template.name} eliminated · ${actors.filter(alive).length} remain`, 'hit');
   updateUI();
 }
 function finish(won: boolean) {
   if (phase !== 'playing') return;
-  firing = false; dashRequested = false; keys.clear(); touchMovement = { x: 0, z: 0 };
+  stopFiring(); dashRequested = false; keys.clear(); touchMovement = { x: 0, z: 0 };
   for (const shot of shots) { drops.push(...projectileDrops(shot)); disposePieceProjectile(renderer.scene, shot.mesh); }
   shots = [];
   drops.forEach(drop => { drop.skipAgeOnce = false; });
@@ -316,6 +326,7 @@ function hit(shot: Shot, target: Actor) {
   recordImpact(shot.ownerId, target.id, 'actor');
   const wasExposed = target.structure.coreExposed;
   const result = damageStructure(target.structure, shot.damage);
+  updateBounds(target);
   knockOff(target, [...result.direct, ...result.cascade]);
   target.hurt = 0.2;
   burst(shot.x, 3, shot.z, 12 + Math.min(15, result.cascade.length), shot.owner.id === 'player' ? '#e56b3d' : '#5d9a86');
@@ -337,19 +348,7 @@ function hit(shot: Shot, target: Actor) {
 function hitBuilding(shot: Shot, target: ArenaBuilding) {
   recordImpact(shot.ownerId, target.id, 'building');
   const result = damageArenaBuilding(target, shot.damage, Math.random, { x: shot.x, z: shot.z });
-  for (const piece of [...result.direct, ...result.cascade]) {
-    const position = {
-      x: target.x + (piece.position.x + piece.size.x / 2) * CONFIG.characterScale,
-      z: target.z + (piece.position.z + piece.size.z / 2) * CONFIG.characterScale,
-      vx: 0, vz: 0, radius: Math.hypot(piece.size.x, piece.size.z) * CONFIG.characterScale / 2,
-    };
-    resolveArenaBuildings(position, buildings); clampToArena(position);
-    drops.push({ piece, ownerId: null,
-      x: position.x,
-      y: Math.max(0.5, (piece.position.y + piece.size.y / 2) * CONFIG.characterScale),
-      z: position.z,
-      vx: 0, vy: 4 + Math.random() * 5, vz: 0, age: 0, settled: false, rotation: Math.random() * Math.PI });
-  }
+  drops.push(...createBuildingDebris(target, [...result.direct, ...result.cascade], buildings));
   burst(shot.x, 2, shot.z, 10, shot.piece.color);
   sound.play('hit', 0.5);
   if (shot.ownerId === 'player') { stats.hits++; stats.direct += result.direct.length; stats.cascade += result.cascade.length; }
@@ -373,6 +372,7 @@ function updateBounds(a: Actor) {
   a.boundsRevision = a.structure.revision;
 }
 function bot(dt: number) {
+  const floor = groundIndex(drops);
   const living = actors.filter(alive), threats = shots.filter(shot => shot.mode === 'shot');
   const orders = coordinateBotSquad(squad, round!.number, living, simTime);
   for (const actor of living) {
@@ -380,7 +380,7 @@ function bot(dt: number) {
     const hostile = (id: string) => !areBattleAllies(round!.number, actor.id, id);
     const order = orders.get(actor.id);
     const action = thinkBattleBot(actor.bot, actor, living.filter(other => hostile(other.id)), drops,
-      threats.filter(shot => hostile(shot.ownerId)), buildings, dt, simTime, Math.random, order);
+      threats.filter(shot => hostile(shot.ownerId)), buildings, dt, simTime, Math.random, order, floor);
     actor.squadRole = order?.role ?? 'independent';
     actor.desiredShotCount = action.shotCount;
     const previous = { x: actor.x, z: actor.z };
@@ -393,30 +393,10 @@ function bot(dt: number) {
   }
 }
 function updateDrops(dt: number, collect: boolean, advanceAges = true) {
-  const damping = Math.exp(-dt * 3.4);
-  const falling: Drop[] = [];
   for (let i = drops.length - 1; i >= 0; i--) {
     const d = drops[i]; if (advanceAges && !d.skipAgeOnce) d.age += dt; d.skipAgeOnce = false;
-    if (!d.settled) {
-      d.vy -= 25 * dt; d.x += d.vx * dt; d.y += d.vy * dt; d.z += d.vz * dt;
-      d.vx *= damping; d.vz *= damping; d.rotation += dt * d.vx * 0.4;
-      d.x = THREE.MathUtils.clamp(d.x, -CONFIG.arenaWidth / 2 + 2, CONFIG.arenaWidth / 2 - 2);
-      d.z = THREE.MathUtils.clamp(d.z, -CONFIG.arenaDepth / 2 + 2, CONFIG.arenaDepth / 2 - 2);
-      if (d.vy <= 0) falling.push(d);
-    }
   }
-  if (falling.length) {
-    const stack = new DebrisStack();
-    for (const d of drops) if (d.settled) stack.add(d);
-    for (const d of falling) {
-      if (!stack.canLand(d)) continue;
-      const landingY = stack.landingY(d);
-      if (d.y > landingY) continue;
-      d.y = landingY;
-      if (Math.abs(d.vy) > 2.2) d.vy = -d.vy * 0.23;
-      else { d.settled = true; d.vy = 0; stack.add(d); }
-    }
-  }
+  stepDebrisPhysics(drops, buildings, dt);
   if (!collect) return;
   const results = collectNearbyDrops(drops, actors);
   let repairs = 0, growth = 0, banked = 0;
@@ -621,15 +601,19 @@ function updateUI() {
 
 canvas.tabIndex = 0;
 canvas.addEventListener('contextmenu', e => e.preventDefault());
-window.addEventListener('pointermove', e => { pointerPosition = { x: e.clientX, y: e.clientY }; });
+window.addEventListener('pointermove', e => {
+  if (firePointerId === null || e.pointerId === firePointerId) pointerPosition = { x: e.clientX, y: e.clientY };
+});
 canvas.addEventListener('pointerdown', e => {
-  if (e.button !== 0 || phase !== 'playing' || !alive(actors[0])) return;
-  firing = true; sound.unlock();
+  if (e.button !== 0 || firePointerId !== null || phase !== 'playing' || !alive(actors[0])) return;
+  firePointerId = e.pointerId; firing = true; canvas.setPointerCapture(e.pointerId); sound.unlock();
   pointerPosition = { x: e.clientX, y: e.clientY };
   aim = pointerAim(e.clientX, e.clientY);
   fire(actors[0], aim.x, aim.z);
 });
-window.addEventListener('pointerup', () => { firing = false; });
+window.addEventListener('pointerup', e => stopFiring(e.pointerId));
+window.addEventListener('pointercancel', e => stopFiring(e.pointerId));
+canvas.addEventListener('lostpointercapture', e => stopFiring(e.pointerId));
 window.addEventListener('keydown', e => {
   if (phase === 'lobby') return;
   if ((e.target as HTMLElement).matches('input,select,textarea')) return;
@@ -643,7 +627,7 @@ window.addEventListener('keydown', e => {
   if (e.code === 'KeyM') toggleMute();
 });
 window.addEventListener('keyup', e => keys.delete(e.code));
-window.addEventListener('blur', () => { keys.clear(); firing = false; dashRequested = false; if (phase === 'playing' || phase === 'collecting') togglePause(); });
+window.addEventListener('blur', () => { keys.clear(); stopFiring(); dashRequested = false; if (phase === 'playing' || phase === 'collecting') togglePause(); });
 document.addEventListener('visibilitychange', () => { if (document.hidden && (phase === 'playing' || phase === 'collecting')) togglePause(); });
 let previousTime = performance.now(), accumulator = 0, uiClock = 0;
 function frame(now: number) {
@@ -668,7 +652,7 @@ Object.defineProperty(window, '__arenaSnapshot', { get: () => ({
     desiredShotCount: actor.desiredShotCount, lastShotCount: actor.lastShotCount, shotCount: actor.lastShotCount,
     shotsFired: actor.shotsFired, dashStarts: actor.dashStarts, dash: { ...(actor.id === 'player' ? dash : actor.dash!) },
     alive: alive(actor), pieces: actor.structure.pieces.size, reserve: actor.structure.evolution?.reserve.length ?? 0,
-    coreExposed: actor.structure.coreExposed, style: actor.bot?.style, intent: actor.bot?.battle?.intent,
+    coreExposed: actor.structure.coreExposed, style: actor.bot?.style, difficulty: actor.bot?.difficulty, intent: actor.bot?.battle?.intent,
     targetId: actor.bot?.battle?.targetId, cooldown: actor.cooldown })),
   aliveCount: actors.filter(alive).length, placement: playerPlacement,
   winner: round && battleWinner(round)?.id, outcome: round && playerBattleOutcome(round),

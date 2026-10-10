@@ -1,6 +1,58 @@
 # Performance audit
 
-This audit measures the local application before changing rendering and reserve bookkeeping. The target is 60 FPS on an ordinary laptop. A short headless run, even with hardware acceleration, does not establish that target for interactive play or other laptops.
+The dated records below distinguish the current **v2 Battle Royal patch** audit-fix workloads from earlier hardware and decision reviews. The target is 60 FPS on an ordinary laptop. A short headless run, even with hardware acceleration, does not establish that target for interactive play or other laptops.
+
+## Current audit-fix hardware verification, 2026-10-10
+
+The audit corrections were measured twice, sequentially, with all production TypeScript hashes unchanged during and between the runs. Headless Chrome uses the same AMD Radeon ANGLE/Direct3D11 hardware adapter, 1872 × 879 / DPR 1, no CPU throttling, real four-fighter logic and roughly four-second windows. Frame rates below are reciprocal mean requestAnimationFrame intervals. These short spot checks are not device-independent FPS guarantees.
+
+| Live workload | Before corrections | After, two runs | Mean tick CPU after |
+| --- | ---: | ---: | ---: |
+| 4,000 cover-clear ground parts | 38.9 frames/s | 56.8–60.4 frames/s | 3.98–5.35 ms |
+| 12,000 cover-clear ground parts | 4.6 frames/s | 52.4–58.5 frames/s | 9.02–10.96 ms |
+| 5,000 granted reserve parts per fighter | 42.4 frames/s | 52.2–53.2 frames/s | 6.90–7.30 ms |
+
+The first run also records native rounds 1/4 at 58.9/60.2 frames/s, two forced building impacts at 60.2, frozen rendering of 12,000 parts at 60.4, and four complete authored forms at 59.9. Both live twelve-thousand-part samples advance about four combat seconds in four wall seconds, replacing the previous 1.83-in-4.38 slowdown. Their p95 frame intervals are 17.0–33.4 ms and peaks 50.1 ms. The second, colder 4,000-part sample includes a 116.6 ms peak, so isolated spikes are not claimed to be eliminated. Cover/routes and contested pickup patterns can vary with frame scheduling; these are workload comparisons rather than statistical identical-match repeats.
+
+All eleven post-fix workload windows conserve their initial physical mass and report zero page/console errors. Each run performs twenty resets with stable 38 geometries / one texture. The confirmation run retires old frame scopes, forces GC and reads `Runtime.getHeapUsage`: used V8 heap is 36.02 MB initially and 35.91 MB after twenty resets, with intermediate values 35.87–35.89 MB. This short reset check finds no growing retained heap. `performance.memory` is a cached estimate: one sample still reports 73.94 MB while actual post-GC V8 usage is 35.91 MB; it must not be treated as direct retained-heap evidence.
+
+Reports and screenshots are `artifacts/performance-battle-fixed-2026-10-10/report.json` and `artifacts/performance-battle-fixed-confirm-2026-10-10/report.json`. Each includes a separate 4,000-part CPU attribution profile. `scripts/performance-battle-audit.mjs` now hashes all production `.ts` files, excluding tests/fixtures, and records exact post-GC V8 usage alongside the cached estimate. [Audit fixes](AUDIT_FIXES_2026-10-10.md) explains the shared floor/support indices, exact ranking, bounded resumable navigation, route progress, timing correction and verification limits. Heavy browser/Node jobs run sequentially.
+
+## Pre-fix hardware spot check, 2026-10-10
+
+The original quick audit measured the pre-fix four-fighter runtime on AMD Radeon hardware WebGL (ANGLE/Direct3D11), 1872 × 879 / DPR 1, with actual keyboard/pointer/DASH input and separate forced stress fixtures. Four-second windows averaged approximately 55–60 animation frames/s in native rounds, 39 with 4,000 cover-clear live ground parts, 42 with 5,000 granted reserve parts per fighter, and **4.6 with 12,000 cover-clear live ground parts**. Frozen logic with 12,000 parts rendered near 59. Live twelve-thousand-part ticks averaged 37.21 ms, including 27.62 ms bot work and 9.11 ms drops/pickup/assembly; up to six fixed steps per frame advanced 1.83 combat seconds in 4.38 wall seconds. This was an actual workload failure. It led to the exact indexed queries and resumable navigation measured above. The final pre-fix debris fixtures exclude covered cells; preliminary placement measurements are superseded.
+
+All three reports retain physical inventory and contain zero browser errors. Twenty resets per run keep 38 geometries and one texture, with post-GC JS heap returning near 64 MB. A focused 100-test regression run passes for unchanged production code. The audit also reproduces an optional farming timer bypass during continuous dodging. Findings, exact scene metrics, hashes, profiles, evidence limits and reproduction are in [Quick audit](QUICK_AUDIT_2026-10-10.md). These short headless hardware checks do not establish long-run human play or performance on other devices.
+
+## Prior hardcore decision review, 2026-10-10
+
+Normal bots inspect live projectile threats each simulation step, so active evasive movement can change for new crossing lanes. The dodge candidate set is bounded: two perpendicular directions for each of the first three threats, a preferred movement direction, and eight compass directions. Each candidate scores relative closest approaches against the selected threats and verifies cover/edge safety. The existing 1.25 ordinary dodge movement multiplier remains unchanged; no additional base speed or DASH recharge advantage was introduced.
+
+Squad strength comparison counts non-Core reserve ammunition through a weak-key cache stamped by structure/reserve identity, revision, length and Core ID. This avoids repeatedly allocating/scanning reserve arrays during every-frame coordination when stock is unchanged. Real stock mutations invalidate the count. Formation, target commitments and minimum role tenure constrain tactical churn. Existing revision-cached navigation, twelve-candidate resource shortlists and bounded growth windows remain in use.
+
+The hardcore before/after software-WebGL fixed-step combat reports conserve physical inventory every tick and contain zero errors. Their shorter defeat times and shot/hit counts measure gameplay outcomes, not frame rate. [Testing](TESTING.md) preserves this earlier comparison separately from the current audit-fix checks. The later hardware spot checks above do not establish interactive FPS on other devices; no chunk-splitting improvement is claimed.
+
+## Prior bot growth decisions, 2026-10-10
+
+Incomplete bots now evaluate useful growth even when healthy and stocked. Ranking scans eligible floor parts but keeps only twelve candidates, without sorting the whole heap. Selected resource/harvest results are reused for up to 0.3 seconds or two units of travel, and body, inventory or cover revisions invalidate them. Exact repair/growth frontiers and building composition are revision-cached. Complete healthy stocked forms skip optional floor ranking. Geometrically impossible pickup circles use weak-key caching; timed path/harvest deferrals prevent repeated inaccessible goals. Geometry probes are fixed in world space, so changing a bot's angle does not invalidate an impossible-circle result. Actual shot expenditure cannot masquerade as pickup progress.
+
+Inventory or construction changes can still trigger a full floor scan; twelve candidates bound retained ranking and approach checks, not total scan work. The production-loop report `artifacts/squad-growth-final-2026-10-10/report.json` passes fourteen fixtures and five native-map behavior runs with conserved inventory and zero errors. It records actual authored-body growth during native combat and a real early-round mining cadence of 0.2333 seconds at a 60 Hz step. These fixed-step/software-renderer checks do not measure interactive GPU FPS. The full current verification is recorded in [Testing](TESTING.md).
+
+## Prior mixed-part generation, 2026-10-10
+
+Cover keeps twenty buildings and caps each at 600 real parts. Placement uses a bounded integer height field, limited candidate attempts and footprint checks; shapes are selected from the existing 57-type catalogue. Seeded checks retain clear routes, supported contact and non-overlapping geometry. This cap is a work bound, not a frame-rate guarantee.
+
+The long-part side-contact correction adds four exact axis directions to the existing bounded local fallback. It keeps spatial support buckets and continuous cover checks. The original 1,919-part collapse and the version with 900 additional plates remain exact test-only geometry fixtures rather than depending on the new generator's RNG sequence. Current browser screenshots exercise the live mixed generator separately. Accepted final results are in [Testing](TESTING.md).
+
+## Prior audit corrections, 2026-10-10
+
+Projectile bodies and studs now use at most two instanced meshes per logical volley, sharing one material. Disposal releases instance buffers without destroying shared resources. The final production-loop fixture in `artifacts/patch-final-2026-10-10/report.json` has 24 live groups containing 480 actual parts, 48 meshes and 130 draw calls. Its 24 one-part groups also have 130 calls. The original per-part renderer required 1,189 calls in the corresponding 20-part fixture (`artifacts/review-v2-fixes/render-report.json`). These software-WebGL counters establish bounded rendering submissions, not FPS or a device-independent speedup.
+
+Healthy stocked attackers with an existing target no longer rank/sort the whole floor each decision. Resource-seeking, recovery and collector decisions still inspect relevant loot, and normal automatic pickup remains independent. Debris collision uses a construction-bounds broadphase and caches settled support geometry; dense falling parts still require real pile-contact work. The serial suite verifies a complete native 1,919-part tower and the same collapse with 900 additional native plates, with exact inventory and bounded trajectories. The new browser tower screenshot shows a local pile without the earlier upward column. No new real-GPU frame-rate measurement is claimed for these changes; see [Testing](TESTING.md) for the accepted regressions.
+
+## Prior hardware audit, 2026-10-06
+
+The following harness and comparison measured the earlier local application before changing rendering and reserve bookkeeping. Its source hashes and fixture scope apply to that snapshot.
 
 ## Reproduce the measurements
 

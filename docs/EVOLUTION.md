@@ -1,6 +1,6 @@
 # Playable evolutions and reserve
 
-Reviewed against the four-fighter browser runtime on 2026-10-09. Its 160 × 160 map reserves four 52-unit-wide diagonal routes so the largest authored full form can travel between spawns and the center.
+Reviewed against **v2 Battle Royal patch**, including the 2026-10-10 audit corrections. Its four-fighter 160 × 160 map reserves four 52-unit-wide diagonal routes so the largest authored full form can travel between spawns and the center. See [Release notes](RELEASE_NOTES.md) for the current patch and [Testing](TESTING.md) for accepted evidence.
 
 The five approved brick prototypes are integrated into the arena: Mosher, Guitar Demon, Stage Spider, Bass Titan, and Winged Frontman. Choose a path in the lobby; it stays fixed for that run. Every one of the 17 heads can use every path. Each fresh bot receives a random path and starts as its base head.
 

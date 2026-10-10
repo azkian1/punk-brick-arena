@@ -2,7 +2,7 @@
 
 See the [README](../README.md) for the shortest setup path and [Architecture](ARCHITECTURE.md) for code responsibilities.
 
-This reference describes **v2 Battle Royal patch**, reviewed on 2026-10-09. The live browser entry point is a four-fighter battle; retained duel APIs serve compatibility tests. See [Release notes](RELEASE_NOTES.md) and [Testing](TESTING.md) for patch scope and accepted checks.
+This reference describes **v2 Battle Royal patch** and its audit corrections, reviewed on 2026-10-10. The live browser entry point is a four-fighter battle; retained duel APIs serve compatibility tests. See [Release notes](RELEASE_NOTES.md) and [Testing](TESTING.md) for patch scope and accepted checks.
 
 ## Environment and installation
 
@@ -27,8 +27,8 @@ The locked tool versions after the 2026-10-06 security review are Three.js 0.180
 | --- | --- |
 | `npm run dev` | Runs `scripts/dev.mjs`; listens on `127.0.0.1:5173` with `strictPort: true` |
 | `npm test` | Runs all Vitest tests once |
-| `npm test -- --maxWorkers=2` | The accepted 446-test patch run; avoid concurrent GPU/browser audits |
-| `npm test -- --maxWorkers=1 --no-file-parallelism` | Runs the suite serially; useful when the long stress test times out during parallel execution |
+| `npm test -- --maxWorkers=1 --no-file-parallelism` | Current final-suite command; serial files/workers with existing timeouts; keep heavy browser audits idle |
+| `npm test -- --maxWorkers=2` | Optional parallel local run; used by the original v2 snapshot, with timing affected by concurrent load |
 | `npm test -- src/game/structure.test.ts` | Runs one test file while working on structural rules |
 | `npm run build` | Runs `tsc --noEmit`, then the Vite production build |
 | `npm run security:check` | Runs the security guard tests and scans the working tree and an existing fresh `dist/` build; run `npm run build` first |
@@ -37,12 +37,16 @@ The locked tool versions after the 2026-10-06 security review are Three.js 0.180
 | `npx tsx scripts/generate-evolutions.ts` | Exports ten approved body blueprints and their authored color palettes to runtime JSON |
 | `npm run test:mobile` | Checks actual touch movement/firing and release reset in both orientations |
 | `node scripts/bot-squad-browser-audit.mjs` | Checks round alliances, role swaps, DASH, real volleys and native-map bot behavior |
+| `node scripts/patch-browser-audit.mjs` | Checks three mixed-part maps, same-step damage bounds, safe edge landing, recovery starvation, current tower scatter/height, volley batches and secondary-touch DASH |
+| `node scripts/battle-browser-audit.mjs` | Five-path integration and granted/forced regressions; set `BATTLE_AUDIT_MATCHES=0` for regressions only |
+| `node scripts/hardcore-browser-audit.mjs` | Native-map moving-player checks and separate granted-stock pressure fixtures |
+| `node scripts/performance-battle-audit.mjs` | Current four-fighter hardware workload/reset spot checks, production hashes and inventory checks |
 
 The development wrapper sets `configFile: false` and disables dependency auto-discovery/prebundling with an empty include list. The project `vite.config.js` configures production builds and preview: it adds the production Content Security Policy and preview HTTP security headers. The wrapper deliberately does not load that config, so local development retains its own settings. Update the wrapper to change development options; CLI flags appended to `npm run dev` are not forwarded to Vite by the wrapper.
 
 TypeScript targets ES2022 with strict checking, bundler module resolution, DOM libraries, and JSON imports. Its include scope is `src/`, including tests and vendored TypeScript. Files in `scripts/` and `artifacts/` are outside that type-check scope. Running the relevant script is necessary to verify those paths.
 
-There are no configured lint, formatting, coverage, deployment, or CI scripts in this snapshot. Local browser audit scripts are documented in [Testing](TESTING.md); they require an existing Playwright installation and Chrome. `npm run build` does not run tests, the security scan, or asset generation.
+There are no npm lint, formatting, coverage or deployment commands in this snapshot. GitHub Pages CI is configured in `.github/workflows/deploy.yml` and runs tests, build and publication checks before uploading `dist/`. Local browser audit scripts are documented in [Testing](TESTING.md); they require an existing Playwright installation and Chrome. `npm run build` does not run tests, the security scan, or asset generation.
 
 ## Configuration reference
 
@@ -55,7 +59,7 @@ All values below come from [src/game/config.ts](../src/game/config.ts). Times ar
 | `botSpeed` | `11.5 * 1.15 * 1.15` = 15.20875 | Base bot movement speed before behavior/evasion multipliers |
 | `projectileSpeed` | 64 | Planar projectile speed |
 | `shotInterval` | 0.23 | Player cooldown and minimum interval enforced for every runtime fighter |
-| `botShotInterval` | 0.62 | Base Balanced interval before battle behavior and difficulty adjustment |
+| `botShotInterval` | 0.62 | Base Balanced compatibility/profile interval; viable normal battle fire uses 0.23 seconds |
 | `dashDuration` / `dashCooldown` | 0.18 / 2.4 | Dash duration and recharge in simulation seconds |
 | `dashSpeedMultiplier` | 3.3 | Shared player/bot dash speed multiplier for the supplied movement speed |
 | `victoryMinDuration` / `victoryPickupBatchSize` | 2.4 / 16 | Minimum reward time; separate per-step budgets for incoming loot attempts and reserve attachments |
@@ -91,12 +95,12 @@ Keep `revision` for attached geometry and `reserveRevision` for stock changes co
 | --- | --- |
 | 1 | Four independent fighters |
 | 2 | bot-1 and bot-2 ally and coordinate a hostile target; the player and bot-3 stay independent |
-| 3 | All three bots ally against the player |
-| 4+ | Two healthy attackers approach from different angles, while a collector gathers and grows |
+| 3 | All three bots ally against the player and seek distinct crossfire lanes |
+| 4+ | Normally two healthy attackers and one collector; equipment/health rotation and temporary finishing support can change the assignments |
 
-At or below 65% of its attained attached-piece peak, a squad member enters recovery and a healthy collector can replace an attacker immediately. Recovery ends at 90%. Reserve is excluded from health, and role decisions never award parts or reset Core exposure. Round 2 shared targets have a three-second commitment, with local deferral of unreachable targets to prevent stalling. Hostility filters apply to target/threat selection and swept projectile impact; allied hits are also rejected at damage application.
+At or below 65% of its attained attached-piece peak, a squad member enters recovery and an available healthy replacement fills an attack vacancy immediately. Recovery ends at 90%. A clearly stronger collector can rotate into attack after 2.5 seconds of attacker tenure, using attached health and real stock to rank readiness. A collector at least 90% healthy can temporarily support a genuinely weakened target within 48 units when it has non-Core ammunition; the resource assignment resumes when that opportunity ends. Permanent exposure alone cannot sustain this finishing order. Reserve is excluded from restored health, and role decisions never award parts, reset cooldowns or rearm Core protection. Round 2 shared targets have a three-second commitment that can yield to a genuine nearby finish, with local deferral of unreachable targets to prevent stalling. Hostility filters apply to target/threat selection and swept projectile impact; allied hits are also rejected at damage application.
 
-`botForRound()` selects Balanced/easy for round 1, Balanced/medium for round 2, and an independently sampled full-strength style for each later bot. Repeated styles are allowed; styles are separate from alliance/role policy. The difficulty factors in `BOT_DIFFICULTIES` are:
+`botForRound()` selects normal/full strength in every round, with Balanced style in rounds 1 and 2 and an independently sampled style from round 3. Both battle and retained round constructors use that policy. Repeated styles are allowed; styles remain separate from alliance/role policy. Explicit easy/medium `createBot()` calls and the older duel thinker retain their compatibility profiles. The factors in `BOT_DIFFICULTIES` are:
 
 | Difficulty | Movement multiplier | Shot-interval multiplier | Decision interval | Added aim spread | Aim-lead multiplier | Dodge probability per eligible detected threat |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -104,11 +108,21 @@ At or below 65% of its attained attached-piece peak, a squad member enters recov
 | `medium` | 0.85 | 1.35 | 0.24 s | 1.8 | 0.65 | 0.55 |
 | `normal` | 1 | 1 | 0.12 s | 0 | 1 | 1 |
 
-Battle decisions combine vulnerability, target motion, exact surviving cover, pickup eligibility and real ammunition. Preparation ends after gaining four reserve parts, six net parts or six combat seconds. Collectors stay at an in-range pile until its eligible pickups finish; recovering fighters seek repair resources, and attackers can flank or clear obstructing cover. Styles and difficulty modify ordinary intervals, aim and movement; they do not grant resources or extra projectile damage.
+These profile values describe the retained difficulty/duel API, not a staged live opening. Normal battle aim uses full interception and no added spread, viable hostile fire uses `CONFIG.shotInterval`, and threat evasion is reconsidered each simulation step rather than waiting for the profile's decision timer. Explicit easy/medium battle aim retains its existing partial lead.
 
-From round 2, active enemy combat can fire at the player's 0.23-second interval when stocked, or with bounded safe body ammunition at health of at least 68% or a viable finishing opportunity. Collecting/recovering body fire does not receive this attack override. Actual execution always enforces the minimum cooldown. Bots choose 1–20 parts using hit confidence, resources, health and finishing chances; positive stock is not padded with body pieces to fill a requested group.
+Battle decisions combine vulnerability, target motion, exact surviving cover, pickup eligibility and real ammunition. Preparation ends after gaining four reserve parts, six net parts or six combat seconds without adding a slow opening combat tier. Recovering fighters seek repair resources; attackers follow shared rush/crossfire orders, flank or clear the first real cover obstruction. A reachable finish overrides optional growth or in-range pile holding, including for a collector. Styles retain their fighting ranges and movement priorities without granting parts or extra damage.
 
-Each bot owns a real `DashState` and uses the shared movement function. AI requests require a ready cooldown and a full segment safe from cover/arena edges, accounting for threat lanes. Pause freezes recharge and duration; reset creates fresh states. `window.__arenaSnapshot.fighters` exposes team, role, intent, target, desired/actual volley count, shot count and independent dash state for QA. See [Architecture](ARCHITECTURE.md) for route caching and [Testing](TESTING.md) for fixtures and smoke-run limits.
+Full-strength interception solves the quadratic flight-time equation for the current target velocity. The target's X/Z motion stops at its body-aware arena limits, and the former 1.3-second lead cap is absent. Live dodge selection uses actual projectile-group radius, damage count, relative motion and cover before contact; it scores multiple escape directions and can revise an ongoing dodge immediately when another lane becomes dangerous. Settled/rebound shots and allies are excluded. Ordinary movement uses the configured bot speed and the existing 1.25 evasion factor.
+
+Incomplete bots can pursue reachable parts matching the current repair/growth frontier while retaining hostile aim/fire. Optional farming yields to pressure after 3.5 seconds for an ordinary bot or five seconds for a collector, with four-second and 2.5-second pressure windows respectively; necessary repair/recovery is exempt. A rush suppresses optional mining and long off-axis pickup trips while allowing short useful collection. Useful construction mining runs at the real `CONFIG.shotInterval` (0.23 seconds), capped at 1–4 actual parts per harvest volley. It approaches a free point near the chosen part instead of parking beyond pickup reach. A stocked bot can target one rare matching part; body-only mining additionally requires useful yield and preserves at least 85% of its attached peak (minimum 12). Recovery, urgent evasion and viable finishing blows keep their guards. Firing cannot reset an unreachable-loot stall timer.
+
+Resource-job timing continues beneath an `evade` display intent, so repeated dodging cannot prolong optional farming indefinitely. Floor ranking and contested pickup share the exact spatial index in `ground-index.ts`; retain its settled-state, immutable-size and tie-order contracts when changing drops. Persistent debris support is synchronized after state/position changes. Reserve identity, revision, length and Core ID invalidate the shared ammunition count. These caches reference real inventory and never impose a loot truncation limit.
+
+`BOT_NAVIGATION_WORK` in `bots.ts` limits a step to 192 yielded graph/search work units. Keep unfinished navigation distinct from terminal failure, retain validated fallback segments, and continue live threat/aim/fire decisions while routing. Waypoint skipping requires a clear next swept segment; stall timers track safe waypoint progress even when a detour temporarily increases distance to the final goal. This bounds operations rather than wall-clock execution. See [Audit fixes](AUDIT_FIXES_2026-10-10.md) for the regression contracts and [Performance audit](PERFORMANCE_AUDIT.md) for measured workload limits.
+
+Viable normal hostile combat requests the player's 0.23-second interval in every round, including growth movement and a permitted damaged-body trade. Health and recovery guards decide whether to fire, and smaller body budgets conserve damaged armour. Actual execution always enforces the cooldown. Bots choose 1–20 parts using target size/motion/range, hit confidence, actual non-Core stock, health, incoming fire and finishing mass. Abundant stock alone does not force twenty parts; positive stock is not padded with body pieces to fill a requested group. Narrow cover openings can further reduce the packed volley. A bare Core without eligible stock cannot fire.
+
+Each bot owns a real `DashState` and uses the shared movement function. AI requests require readiness and a full segment safe from cover/arena edges and live projectile lanes, using the actual supplied dash velocity. The 0.18-second duration, 3.3 speed multiplier and 2.4-second recharge remain enforced, with no invulnerability. Pause freezes recharge and duration; reset creates fresh states. `window.__arenaSnapshot.fighters` exposes team, role, intent, target, desired/actual volley count, shot count and independent dash state for QA. See [Architecture](ARCHITECTURE.md) for route caching and [Testing](TESTING.md) for fixtures and smoke-run limits.
 
 ## Production output and hosting
 

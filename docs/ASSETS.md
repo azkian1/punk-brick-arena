@@ -2,6 +2,8 @@
 
 The browser uses pre-generated head templates and body blueprints, local PNG portraits, and local audio. During play it assembles collected parts into those fixed plans; it does not run the portrait generator or request third-party media. See [Third-party notices](../THIRD_PARTY_NOTICES.md) for retained credits and rights information.
 
+This pipeline supplies **v2 Battle Royal patch**. Mixed-part cover derives its 57 real size/shape types from the seventeen heads and ten authored body plans; it does not require a new generated asset set. [Release notes](RELEASE_NOTES.md) records current gameplay and verification.
+
 ## Files and provenance
 
 | Location | Purpose |

@@ -6,6 +6,7 @@ import { projectilePartOffsets } from './game/projectiles';
 const box = new THREE.BoxGeometry(1, 1, 1);
 const stud = new THREE.CylinderGeometry(0.29, 0.29, 0.16, 8);
 const brickMaterial = new THREE.MeshStandardMaterial({ roughness: 0.68, metalness: 0.02 });
+const pieceProjectileMaterial = new THREE.MeshStandardMaterial({ roughness: 0.68 });
 const dummy = new THREE.Object3D();
 const instanceColor = new THREE.Color();
 const instanceMatrix = new THREE.Matrix4();
@@ -80,27 +81,32 @@ export function createProjectile(owner: 'player' | 'enemy'): THREE.Group {
 /** A shot displays the consumed inventory piece, including its color and studs. */
 export function createPieceProjectile(piece: Piece | Piece[]): THREE.Group {
   const group = new THREE.Group();
-  if (Array.isArray(piece)) {
-    const offsets = projectilePartOffsets(piece);
-    piece.forEach((part, i) => {
-      const mesh = createPieceProjectile(part);
-      mesh.position.set(offsets[i].x, offsets[i].y, offsets[i].z);
-      group.add(mesh);
-    });
-    return group;
-  }
-  const material = new THREE.MeshStandardMaterial({ color: piece.color, roughness: 0.68 });
-  const body = new THREE.Mesh(box, material);
-  body.scale.set(piece.size.x, piece.size.y, piece.size.z);
-  body.castShadow = true; group.add(body);
-  if (piece.shape !== 'tile' && piece.shape !== 'slope') {
-    for (let x = 0; x < Math.floor(piece.size.x); x++) for (let z = 0; z < Math.floor(piece.size.z); z++) {
-      const top = new THREE.Mesh(stud, material);
-      top.position.set(x + 0.5 - piece.size.x / 2, piece.size.y / 2 + 0.07, z + 0.5 - piece.size.z / 2);
-      top.castShadow = true; group.add(top);
+  const pieces = Array.isArray(piece) ? piece : [piece];
+  if (!pieces.length) return group;
+  const offsets = projectilePartOffsets(pieces), scale = CONFIG.characterScale;
+  const studCount = pieces.reduce((count, part) => count + (part.shape === 'tile' || part.shape === 'slope'
+    ? 0 : Math.floor(part.size.x) * Math.floor(part.size.z)), 0);
+  const body = new THREE.InstancedMesh(box, pieceProjectileMaterial, pieces.length);
+  body.name = 'projectile-body'; body.castShadow = true;
+  const tops = studCount ? new THREE.InstancedMesh(stud, pieceProjectileMaterial, studCount) : null;
+  if (tops) { tops.name = 'projectile-studs'; tops.castShadow = true; }
+  let j = 0;
+  pieces.forEach((part, i) => {
+    const offset = offsets[i];
+    instanceColor.set(part.color);
+    body.setMatrixAt(i, scaledTranslation(offset.x, offset.y, offset.z,
+      part.size.x * scale, part.size.y * scale, part.size.z * scale));
+    body.setColorAt(i, instanceColor);
+    if (!tops || part.shape === 'tile' || part.shape === 'slope') return;
+    for (let x = 0; x < Math.floor(part.size.x); x++) for (let z = 0; z < Math.floor(part.size.z); z++) {
+      tops.setMatrixAt(j, scaledTranslation(offset.x + (x + 0.5 - part.size.x / 2) * scale,
+        offset.y + (part.size.y / 2 + 0.07) * scale, offset.z + (z + 0.5 - part.size.z / 2) * scale,
+        scale, scale, scale));
+      tops.setColorAt(j++, instanceColor);
     }
-  }
-  group.scale.setScalar(CONFIG.characterScale);
+  });
+  updateInstances(body); group.add(body);
+  if (tops) { updateInstances(tops); group.add(tops); }
   return group;
 }
 
@@ -122,7 +128,10 @@ export function disposePieceProjectile(scene: THREE.Scene, group: THREE.Group): 
   const materials = new Set<THREE.Material>();
   group.traverse(object => {
     if (object instanceof THREE.Mesh) {
-      for (const material of Array.isArray(object.material) ? object.material : [object.material]) materials.add(material);
+      if (object instanceof THREE.InstancedMesh) object.dispose();
+      for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
+        if (material !== pieceProjectileMaterial) materials.add(material);
+      }
     }
   });
   materials.forEach(material => material.dispose());

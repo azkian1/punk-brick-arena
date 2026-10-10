@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CHARACTER_TEMPLATES } from '../assets/templates';
-import { takeAmmunition, takeAmmunitionBatch } from './ammunition';
+import { takeAmmunition, takeAmmunitionBatch, reserveAmmunitionCount } from './ammunition';
 import { collectPiece, enableEvolution, evolutionPlan, EVOLUTIONS } from './evolution';
 import { attachPiece, connectedToCore, createStructure, damageStructure } from './structure';
 import type { CharacterTemplate, EvolutionId, Piece, Structure, Vec3 } from './types';
@@ -50,6 +50,19 @@ function completeEvolution(id: EvolutionId, stage: 2 | 3): Structure {
 }
 
 describe('real-part ammunition', () => {
+  it('invalidates the shared reserve count after real firing, same-length replacement, Core changes and collection', () => {
+    const template = CHARACTER_TEMPLATES[0], structure = createStructure(template);
+    enableEvolution(structure, template, 'mosher');
+    const state = structure.evolution!, core = structure.pieces.get(structure.coreId)!;
+    state.reserve = [core, brick('raw/1'), brick('raw/2')]; state.reserveRevision++;
+    expect(reserveAmmunitionCount(structure)).toBe(2);
+    expect(takeAmmunition(structure)?.piece.id).toBe('raw/1'); expect(reserveAmmunitionCount(structure)).toBe(1);
+    state.reserve = [brick('raw/3'), brick('raw/4')]; expect(reserveAmmunitionCount(structure)).toBe(2);
+    structure.coreId = 'raw/3'; expect(reserveAmmunitionCount(structure)).toBe(1);
+    structure.coreId = core.id;
+    expect(collectPiece(structure, brick('large', vec(), vec(31, .4, 3)))?.mode).toBe('bank');
+    expect(reserveAmmunitionCount(structure)).toBe(3);
+  });
   it.each([1, 3, 20])('withdraws a %i-part volley as connected safe body losses, preserving every real reference', count => {
     const structure = createStructure(fixture([brick('core'), ...Array.from({ length: 24 }, (_, i) => brick(`part/${i}`, vec(i + 1, 0, 0)))]));
     const inventory = new Map(structure.pieces), before = structure.pieces.size;

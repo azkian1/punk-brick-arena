@@ -4,7 +4,7 @@ import { createBot, thinkBattleBot, type BattleBotBody } from './bots';
 import { coordinateBotSquad, createBotSquad, type BotSquadOrder } from './bot-squad';
 import { CONFIG } from './config';
 import { createStructure, damageStructure, getBounds } from './structure';
-import { enableEvolution } from './evolution';
+import { collectPiece, enableEvolution } from './evolution';
 import { createDash, moveDashingBody, startDash } from './movement';
 import { collectNearbyDrops } from './pickup';
 import { segmentBuildingHit, type ArenaBuilding } from './arena';
@@ -31,6 +31,18 @@ const building = (x: number, z: number, sx = 4, sz = 36): ArenaBuilding => {
   return { id: 'cover', x, z, structure, bounds: getBounds(structure), template: 'wall' };
 };
 const incoming = (x = 24, z = 0) => ({ ownerId: 'player', x, z, vx: -64, vz: 0, radius: 1, damage: 10 });
+const growthPiece = (self: BattleBotBody, id = 'growth'): Piece => {
+  const state = self.structure.evolution!;
+  const slot = state.plan.slots.find((_, i) => i >= state.plan.headCount && !state.occupied[i]
+    && state.plan.neighbors[i].some(n => state.occupied[n]))!;
+  return { ...slot, id, size: { ...slot.size }, position: { x: 0, y: 0, z: 0 } };
+};
+const growthCover = (self: BattleBotBody, x: number, z: number): ArenaBuilding => {
+  const part = growthPiece(self), pieces = Array.from({ length: 3 }, (_, i) => ({ ...part, id: `cover/${i}`,
+    size: { ...part.size }, position: { x: (i - 1.5) * part.size.x, y: 0, z: -part.size.z / 2 } }));
+  const structure = createStructure({ ...CHARACTER_TEMPLATES[1], coreId: pieces[0].id, pieces });
+  return { id: 'cover', x, z, structure, bounds: getBounds(structure), template: 'wall' };
+};
 const think = (self: BattleBotBody, enemies: BattleBotBody[], command: BotSquadOrder,
   drops = [] as ReturnType<typeof drop>[], buildings = [] as ArenaBuilding[]) =>
   thinkBattleBot(createBot('balanced', random), self, enemies, drops, [], buildings, 1 / 60, 0, random, command);
@@ -66,10 +78,11 @@ describe('squad orders produce distinct, stable tactical jobs', () => {
     expect(self.structure.pieces.size).toBeGreaterThan(before * 0.98);
   });
   it('has an R4 collector actually reach and pick up accessible debris even while stocked and healthy', () => {
-    const self = actor('bot-3'), target = actor('player', 45), loot = [drop(0, 25)], bot = createBot('balanced', random);
+    const self = actor('bot-3'), target = actor('player', 45), loot = [{ ...drop(0, 25), piece: growthPiece(self) }], bot = createBot('balanced', random);
     const before = self.structure.pieces.size + self.structure.evolution!.reserve.length;
     const first = thinkBattleBot(bot, self, [target], loot, [], [], 1 / 60, 0, random, order('collector'));
-    expect(first.intent).toBe('collect'); expect(first.fire).toBe(false); expect(first.z).toBeGreaterThan(0.9);
+    expect(first.intent).toBe('collect'); expect(first.fire).toBe(true); expect(first.z).toBeGreaterThan(0.9);
+    expect(first.targetKind).toBe('actor'); expect(first.targetId).toBe(target.id);
     expect(first.dash).toBe(true);
     for (let tick = 0; tick < 240 && loot.length; tick++) {
       const action = thinkBattleBot(bot, self, [target], loot, [], [], 1 / 60, tick / 60, random, order('collector'));
@@ -80,17 +93,21 @@ describe('squad orders produce distinct, stable tactical jobs', () => {
     expect(loot).toHaveLength(0);
     expect(self.structure.pieces.size + self.structure.evolution!.reserve.length).toBe(before + 1);
   });
-  it('stays at an eligible pile already in reach until real pickup batches finish, even beside an exposed finishing target', () => {
+  it('prioritizes an exposed finish while real automatic pickup batches still absorb a pile already in reach', () => {
     const self = actor('bot-3'), target = actor('player', 18), bot = createBot('balanced', random);
     damageStructure(target.structure, target.structure.pieces.size, () => 0.5);
-    const loot = Array.from({ length: CONFIG.pickupBatchSize * 2 + 1 }, (_, index) => drop(0, 1, `pile/${index}`));
+    const preview = actor('preview');
+    const loot = Array.from({ length: CONFIG.pickupBatchSize * 2 + 1 }, (_, index) => {
+      const piece = growthPiece(preview, `pile/${index}`);
+      expect(collectPiece(preview.structure, piece)?.mode).toBe('growth');
+      return { ...drop(0, 1), piece };
+    });
     const before = self.structure.pieces.size + self.structure.evolution!.reserve.length, total = loot.length;
     let frames = 0;
     while (loot.length) {
       const action = thinkBattleBot(bot, self, [target], loot, [], [], 1 / 60, frames / 60, random, order('collector'));
-      expect(action.intent).toBe('collect'); expect(action.fire).toBe(false); expect(action.dash).toBe(false);
-      expect(action.targetId).toBeNull(); expect(action.targetKind).toBeNull();
-      expect(Math.hypot(action.x, action.z)).toBeLessThan(0.01);
+      expect(action.intent).toBe('finish'); expect(action.fire).toBe(true); expect(action.dash).toBe(false);
+      expect(action.targetId).toBe(target.id); expect(action.targetKind).toBe('actor'); expect(action.shotCount).toBe(1);
       expect(collectNearbyDrops(loot, [self]).length).toBeLessThanOrEqual(CONFIG.pickupBatchSize);
       frames++;
       expect(frames).toBeLessThan(5);
@@ -101,7 +118,7 @@ describe('squad orders produce distinct, stable tactical jobs', () => {
     expect(next.intent).toBe('finish'); expect(next.fire).toBe(true); expect(next.targetId).toBe(target.id);
   });
   it('harvests real cover when the collector has no reachable loot and never pads one stock part with body ammunition', () => {
-    const self = actor('bot-3', 0, 0, 1), cover = building(-26, 0), target = actor('player', 45);
+    const self = actor('bot-3', 0, 0, 1), cover = growthCover(self, -26, 0), target = actor('player', 45);
     const action = think(self, [target], order('collector'), [], [cover]);
     expect(action.intent).toBe('harvest'); expect(action.targetKind).toBe('building'); expect(action.fire).toBe(true);
     expect(action.shotCount).toBe(1);
@@ -123,7 +140,7 @@ describe('squad orders produce distinct, stable tactical jobs', () => {
     expect(attacking.intent).toBe('finish'); expect(attacking.fire).toBe(true); expect(attacking.targetId).toBe(target.id);
   });
   it('uses real harvesting during a recovery order instead of trading shots with the easy finishing target', () => {
-    const self = actor('bot-1', 0, 0, 3), target = actor('player', 18), cover = building(-22, 0);
+    const self = actor('bot-1', 0, 0, 3), target = actor('player', 18), cover = growthCover(self, -22, 0);
     damageStructure(target.structure, target.structure.pieces.size, () => 0.5);
     const action = think(self, [target], order('recover'), [], [cover]);
     expect(action.intent).toBe('recover'); expect(action.targetKind).toBe('building'); expect(action.targetId).toBe(cover.id);
@@ -199,16 +216,16 @@ describe('battle dash commands follow actual cooldown, path and tactical benefit
   });
 });
 
-describe('later round pressure is fast but uses only real, suitably sized batches', () => {
-  it.each([2, 3, 4])('fires stocked pressure at the player interval in round %i while keeping round one easy slower', round => {
+describe('full strength pressure is fast in every round but uses only real, suitably sized batches', () => {
+  it.each([1, 2, 3, 4])('fires stocked pressure at the player interval from round one through round %i', round => {
     const self = actor('bot-1'), target = actor('player', 30);
-    const bot = createBot('balanced', random, 'easy');
+    const bot = createBot('balanced', random, 'normal');
     const opening = thinkBattleBot(bot, self, [target], [], [], [], 1 / 60, 0, random, order('independent', 1));
     const later = thinkBattleBot(bot, self, [target], [], [], [], 1 / 60, 0.02, random, order('attacker', round));
-    expect(opening.shotInterval).toBeGreaterThan(0.62); expect(later.shotInterval).toBe(CONFIG.shotInterval);
+    expect(opening.shotInterval).toBe(CONFIG.shotInterval); expect(later.shotInterval).toBe(CONFIG.shotInterval);
     expect(later.fire).toBe(true);
   });
-  it.each([2, 3, 4])('keeps a healthy round %i attacker on player cadence with a bounded real body volley and retained Core', round => {
+  it.each([1, 2, 3, 4])('keeps a healthy round %i attacker on player cadence with a bounded real body volley and retained Core', round => {
     const self = actor('bot-1', 0, 0, 0), target = actor('player', 30), before = self.structure.pieces.size;
     const action = think(self, [target], order('attacker', round));
     expect(action.fire).toBe(true); expect(action.shotInterval).toBe(CONFIG.shotInterval);
@@ -221,20 +238,21 @@ describe('later round pressure is fast but uses only real, suitably sized batche
     expect(shot.damage).toBe(ammunition.length);
     expect(self.structure.evolution!.reserve).toHaveLength(0);
   });
-  it('keeps damaged, recovering and collecting bodies on their cautious cadence and preserves the slow no-order and round-one API', () => {
+  it('keeps damaged, collecting, no-order and opening pressure on player cadence while recovery mines real cover', () => {
     const target = actor('player', 30), damaged = actor('bot-1', 0, 0, 0), original = damaged.structure.pieces.size;
     while (damaged.structure.pieces.size > original * 0.6) expect(takeAmmunition(damaged.structure)?.source).toBe('body');
     const cautious = think(damaged, [target], order('attacker', 3));
-    expect(cautious.fire).toBe(true); expect(cautious.shotInterval).toBeGreaterThan(CONFIG.shotInterval);
-    const recovering = think(actor('bot-1', 0, 0, 0), [target], order('recover'), [], [building(-22, 0)]);
+    expect(cautious.fire).toBe(true); expect(cautious.shotInterval).toBe(CONFIG.shotInterval);
+    const recoveringBody = actor('bot-1', 0, 0, 0);
+    const recovering = think(recoveringBody, [target], order('recover'), [], [growthCover(recoveringBody, -22, 0)]);
     expect(recovering.targetKind).toBe('building'); expect(recovering.intent).toBe('recover');
-    expect(recovering.shotInterval).toBeGreaterThan(CONFIG.shotInterval);
+    expect(recovering.shotInterval).toBe(CONFIG.shotInterval);
     const collecting = think(actor('bot-3', 0, 0, 0), [target], order('collector'));
-    expect(collecting.targetKind).toBe('actor'); expect(collecting.shotInterval).toBeGreaterThan(CONFIG.shotInterval);
+    expect(collecting.targetKind).toBe('actor'); expect(collecting.shotInterval).toBe(CONFIG.shotInterval);
     const self = actor('bot-1', 0, 0, 0);
     const noOrder = thinkBattleBot(createBot('balanced', random), self, [target], [], [], [], 1 / 60, 0);
     const opening = think(self, [target], order('attacker', 1));
-    expect(noOrder.shotInterval).toBeGreaterThan(0.62); expect(opening.shotInterval).toBeGreaterThan(0.62);
+    expect(noOrder.shotInterval).toBe(CONFIG.shotInterval); expect(opening.shotInterval).toBe(CONFIG.shotInterval);
   });
   it('allows a damaged later attacker to use its existing real finishing batch at player cadence', () => {
     const self = actor('bot-1', 0, 0, 0), target = actor('player', 30), original = self.structure.pieces.size;
@@ -262,5 +280,122 @@ describe('later round pressure is fast but uses only real, suitably sized batche
     expect(pressure.shotCount).toBeGreaterThan(finish.shotCount); expect(finish.shotCount).toBe(1);
     expect(pressure.shotCount).toBeLessThanOrEqual(20); expect(pressure.shotCount).toBeGreaterThan(1);
     expect(pressure.shotInterval).toBeGreaterThanOrEqual(CONFIG.shotInterval); expect(finish.shotInterval).toBeGreaterThanOrEqual(CONFIG.shotInterval);
+  });
+});
+
+describe('audited AI starvation, finishing and resource-selection regressions', () => {
+  it('breaks the real thirty-second all-recover deadlock with bounded body shots and no free healing or stock', () => {
+    const player = actor('player', 30), bots = [actor('bot-1', 0, 0, 0), actor('bot-2', 0, 0, 0), actor('bot-3', 0, 0, 0)];
+    const squad = createBotSquad(), states = bots.map(() => createBot('balanced', random));
+    coordinateBotSquad(squad, 4, [player, ...bots], 0);
+    const mass = [player, ...bots].reduce((sum, bot) => sum + bot.structure.pieces.size + bot.structure.evolution!.reserve.length, 0);
+    for (const bot of bots) {
+      const initial = bot.structure.pieces.size;
+      while (bot.structure.pieces.size > initial * 0.6) player.structure.evolution!.reserve.push(takeAmmunition(bot.structure)!.piece);
+    }
+    const cooldowns = [0, 0, 0], shots = [] as ReturnType<typeof createPartProjectile>[], counts = [0, 0, 0];
+    let firstAttack = Infinity;
+    for (let tick = 1; tick <= 1800; tick++) {
+      const time = tick / 60, orders = coordinateBotSquad(squad, 4, [player, ...bots], time);
+      for (const [index, bot] of bots.entries()) {
+        const action = thinkBattleBot(states[index], bot, [player], [], [], [], 1 / 60, time, random, orders.get(bot.id));
+        cooldowns[index] -= 1 / 60;
+        if (!action.fire || cooldowns[index] > 0) continue;
+        firstAttack = Math.min(firstAttack, time); counts[index]++;
+        const parts = Array.from({ length: action.shotCount }, () => takeAmmunition(bot.structure)!);
+        expect(parts.every(p => p.source === 'body' && p.piece.id !== bot.structure.coreId)).toBe(true);
+        shots.push(createPartProjectile(parts.map(p => p.piece), bot.id, bot.x, bot.z, action.aimX, action.aimZ));
+        cooldowns[index] = action.shotInterval;
+      }
+    }
+    expect(firstAttack).toBeGreaterThanOrEqual(8); expect(firstAttack).toBeLessThan(8.2);
+    expect(counts.filter(count => count > 0)).toHaveLength(2);
+    expect(bots.every(bot => bot.structure.pieces.has(bot.structure.coreId) && bot.structure.evolution!.reserve.length === 0)).toBe(true);
+    expect([player, ...bots].reduce((sum, bot) => sum + bot.structure.pieces.size + bot.structure.evolution!.reserve.length, 0)
+      + shots.reduce((sum, shot) => sum + shot.pieces.length, 0)).toBe(mass);
+  });
+  it('uses its last one to three real reserve parts after stalled Core-only recovery, then withdraws without firing the Core', () => {
+    for (const stock of [1, 2, 3]) {
+      const player = actor('player', 30), bots = [actor('bot-1', 0, 0, stock), actor('bot-2', 0, 0, 0), actor('bot-3', 0, 0, 0)];
+      const squad = createBotSquad(), state = createBot('balanced', random), self = bots[0];
+      coordinateBotSquad(squad, 4, [player, ...bots], 0);
+      const mass = [player, ...bots].reduce((sum, bot) => sum + bot.structure.pieces.size + bot.structure.evolution!.reserve.length, 0);
+      const shed = bots.flatMap(bot => {
+        const removed = damageStructure(bot.structure, bot.structure.pieces.size, () => 0.5);
+        return [...removed.direct, ...removed.cascade];
+      });
+      expect(bots.every(bot => bot.structure.pieces.size === 1)).toBe(true);
+      const recovering = coordinateBotSquad(squad, 4, [player, ...bots], 0.1).get(self.id)!;
+      expect(recovering.role).toBe('recover');
+      expect(thinkBattleBot(state, self, [player], [], [], [], 1 / 60, 0.1, random, recovering).fire).toBe(false);
+      const fallback = coordinateBotSquad(squad, 4, [player, ...bots], 8.2).get(self.id)!;
+      expect(fallback.role).toBe('attacker'); expect(fallback.recoveryFallback).toBe(true);
+      const fired: Piece[] = [];
+      let time = 8.2;
+      while (self.structure.evolution!.reserve.length) {
+        const available = self.structure.evolution!.reserve.length;
+        const action = thinkBattleBot(state, self, [player], [], [], [], 1 / 60, time, random, fallback);
+        expect(action.intent).toBe('hunt'); expect(action.targetId).toBe(player.id); expect(action.fire).toBe(true);
+        expect(action.shotCount).toBeGreaterThan(0); expect(action.shotCount).toBeLessThanOrEqual(available);
+        for (let part = 0; part < action.shotCount; part++) {
+          const ammunition = takeAmmunition(self.structure)!;
+          expect(ammunition.source).toBe('reserve'); expect(ammunition.piece.id).not.toBe(self.structure.coreId);
+          fired.push(ammunition.piece);
+        }
+        time += action.shotInterval;
+      }
+      expect(fired).toHaveLength(stock); expect(self.structure.pieces.has(self.structure.coreId)).toBe(true);
+      const exhausted = coordinateBotSquad(squad, 4, [player, ...bots], time).get(self.id)!;
+      expect(exhausted.role).toBe('recover'); expect(exhausted.recoveryFallback).toBeUndefined();
+      expect(thinkBattleBot(state, self, [player], [], [], [], 1 / 60, time, random, exhausted).shotCount).toBe(0);
+      expect(takeAmmunition(self.structure)).toBeNull();
+      expect([player, ...bots].reduce((sum, bot) => sum + bot.structure.pieces.size + bot.structure.evolution!.reserve.length, 0)
+        + shed.length + fired.length).toBe(mass);
+    }
+  });
+  it('keeps starvation fallback in combat instead of restarting ordinary repair collection on a tempting ground piece', () => {
+    const self = actor('bot-1', 0, 0, 0), target = actor('player', 28), before = self.structure.pieces.size;
+    while (self.structure.pieces.size > before * 0.6) takeAmmunition(self.structure);
+    const command = { ...order('attacker'), recoveryFallback: true };
+    const action = think(self, [target], command, [drop(0, 12)]);
+    expect(action.intent).toBe('hunt'); expect(action.targetId).toBe(target.id); expect(action.fire).toBe(true);
+    expect(action.shotCount).toBeGreaterThan(0); expect(action.shotInterval).toBe(CONFIG.shotInterval);
+  });
+  it.each([100, 200])('caps a stocked %i-part finishing volley to a lone Core instead of the plentiful twenty-part batch', stock => {
+    const self = actor('bot-1', 0, 0, stock), target = actor('player', 25);
+    damageStructure(target.structure, target.structure.pieces.size, () => 0.5);
+    const action = think(self, [target], order('attacker'));
+    expect(action.intent).toBe('finish'); expect(action.fire).toBe(true); expect(action.shotCount).toBe(1);
+    expect(takeAmmunition(self.structure)?.source).toBe('reserve');
+    expect(self.structure.evolution!.reserve).toHaveLength(stock - 1);
+  });
+  it('applies the finishing cap after sustained pressure too while retaining the margin for an uncertain narrow target', () => {
+    const self = actor('bot-1', 0, 0, 30), target = actor('player', 28), bot = createBot('balanced', random);
+    for (let tick = 0; tick < 800; tick++) thinkBattleBot(bot, self, [target], [], [], [], 1 / 60, tick / 60, random, order('attacker'));
+    damageStructure(target.structure, target.structure.pieces.size, () => 0.5);
+    const finish = thinkBattleBot(bot, self, [target], [], [], [], 1 / 60, 14, random, order('attacker'));
+    expect(finish.shotCount).toBe(1); expect(finish.intent).toBe('finish');
+    const moving = { ...target, radius: 0.6, vx: 0, vz: 30 };
+    const uncertain = thinkBattleBot(createBot('balanced', random, 'normal'), actor('bot-1', 0, 0, 100), [moving], [], [], [], 1 / 60, 0, random, order('attacker'));
+    expect(uncertain.intent).toBe('finish'); expect(uncertain.fire).toBe(true); expect(uncertain.shotCount).toBe(3);
+  });
+  it('does not inspect irrelevant floor candidates for a complete healthy stocked hunter, while automatic pickup remains real and independent', () => {
+    const self = actor('bot-1', 0, 0, 100), target = actor('player', 28), state = self.structure.evolution!;
+    self.structure.pieces = createStructure({ ...CHARACTER_TEMPLATES[1], pieces: state.plan.slots }).pieces;
+    state.occupied = state.plan.slots.map(piece => piece.id); state.everBuilt = new Set(state.plan.slots.map((_, i) => i));
+    self.structure.roundStartPieces = self.structure.pieces.size; self.structure.revision++;
+    const before = self.structure.pieces.size + state.reserve.length;
+    let reads = 0;
+    const ground = Array.from({ length: 2000 }, (_, index) => {
+      const part = brick(`large-pile/${index}`);
+      return { ...drop(0, 1), get piece() { reads++; return part; } };
+    });
+    const action = think(self, [target], order('attacker'), ground);
+    expect(action.intent).toBe('hunt'); expect(action.fire).toBe(true); expect(action.shotCount).toBeGreaterThan(1);
+    expect(action.shotCount).toBeLessThanOrEqual(20);
+    expect(reads).toBe(0);
+    expect(collectNearbyDrops(ground, [self])).toHaveLength(CONFIG.pickupBatchSize);
+    expect(reads).toBeGreaterThan(0);
+    expect(self.structure.pieces.size + self.structure.evolution!.reserve.length).toBe(before + CONFIG.pickupBatchSize);
   });
 });

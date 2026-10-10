@@ -50,11 +50,11 @@ window.__battleQA = {
     actors[2].x=-45;actors[2].z=-45;actors[3].x=45;actors[3].z=45;
     const before=p.structure.pieces.size+(p.structure.evolution?.reserve.length||0),priorMass=window.__arenaSnapshot.mass;
     p.cooldown=0;fire(p,e.x,e.z,CONFIG.shotInterval,count);
-    const s=shots.at(-1),ids=s.pieces.map(p=>p.id),damage=s.damage,groups=shots.length,meshParts=s.mesh.children.length;
+    const s=shots.at(-1),ids=s.pieces.map(p=>p.id),damage=s.damage,groups=shots.length,meshParts=s.mesh.getObjectByName('projectile-body').count,meshBatches=s.mesh.children.length;
     const renderTime=simTime;simTime=1;draw(0);simTime=renderTime;const groupYaw=s.mesh.rotation.y;
     const spent=before-p.structure.pieces.size-(p.structure.evolution?.reserve.length||0);
     for(let i=0;i<90&&!combatEvents.length;i++)tick(1/60);
-    return {count,damage,direct:stats.direct,groups,meshParts,groupYaw,spent,ids,dropCount:drops.filter(d=>ids.includes(d.piece.id)).length,
+    return {count,damage,direct:stats.direct,groups,meshParts,meshBatches,groupYaw,spent,ids,dropCount:drops.filter(d=>ids.includes(d.piece.id)).length,
       locks:drops.filter(d=>ids.includes(d.piece.id)).map(d=>d.lockedUntilAge),priorMass,mass:window.__arenaSnapshot.mass};
   },
   runeFixture:()=>{
@@ -292,7 +292,7 @@ try {
   report.fixtures.push('hidden rivals/counters, unified player summary and keyboard volley slider');
   for(const count of [1,3,20]){
     const volley=await page.evaluate(count=>window.__battleQA.volleyFixture(count),count);
-    assert.equal(volley.damage,count);assert.equal(volley.direct,count);assert.equal(volley.spent,count);assert.equal(volley.groups,1);assert.equal(volley.meshParts,count);
+    assert.equal(volley.damage,count);assert.equal(volley.direct,count);assert.equal(volley.spent,count);assert.equal(volley.groups,1);assert.equal(volley.meshParts,count);assert(volley.meshBatches<=2);
     if(count>1)assert.equal(volley.groupYaw,0,'packed shot and loot offsets must keep the same orientation');
     assert.equal(volley.dropCount,count);assert(volley.locks.every(lock=>lock===5));assert.equal(volley.mass,volley.priorMass);
     report.fixtures.push({realPartVolley:volley});

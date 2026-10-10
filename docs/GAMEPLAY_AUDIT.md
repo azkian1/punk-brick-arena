@@ -1,6 +1,105 @@
 # Gameplay audit
 
-## Current coordinated-bot verification, 2026-10-09
+## Current v2 audit-fix verification, 2026-10-10
+
+The playable runtime is one player plus three bots with immediate player defeat, physical inventory ammunition and escalating alliances. The final audit-fix suite passes **552 tests in 31 files** in **91.01 seconds** with serial workers and existing timeouts. Strict TypeScript/Vite build and all three publication/security guards pass; the entry is 2,779.85 kB / 442.29 kB gzip, with the existing large-chunk warning.
+
+Final browser reruns pass fourteen squad fixtures plus five native-map smokes, ten patch fixtures and 21 battle fixtures, with zero errors. They retain exact inventory, real attacker/collector growth during hostile fire, legal cooldown/DASH, allied guards, rune/fired-loot locks, immediate defeat, carryover and HUD alignment. The final battle run excludes assisted matches (`BATTLE_AUDIT_MATCHES=0`); native smokes use a stationary player after forced round entry. The optional growth fixture now places its part relative to the actual pickup radius so the existing rush cutoff remains meaningful.
+
+New regressions verify exact indexed resource/pickup queries, persistent debris support, shared stock counts, optional resource timing during dodges and navigation resuming within 192 yielded work units per bot step. Fragmented-cover routes preserve safe movement and reach actual pickup range; the narrow-opening fixture spends a real part to clear cover, traverses the opened passage and resumes hostile fire. [Testing](TESTING.md) and [Audit fixes](AUDIT_FIXES_2026-10-10.md) preserve exact report paths, hashes, grants and limits. Separate short hardware workloads are recorded in [Performance audit](PERFORMANCE_AUDIT.md).
+
+The dated comparisons below describe their earlier production snapshots. Their match outcomes, test counts and bundle sizes do not replace the current verification above.
+
+## Prior hardcore behavior comparison, 2026-10-10
+
+Full-strength combat begins in round one. Bots solve moving-target intercepts using actual projectile speed and per-axis arena stopping, adjust an active dodge when another firing lane appears, and use the legal player-rate cooldown for viable hostile shots. Volleys spend real parts according to range, target size/speed, danger, stock and finishing mass. Useful growth remains available while firing; healthy optional detours have limited collection windows so bots return to pressure. Recovery, five-second fired-loot locks, allied damage protection and Core ammunition guards remain intact.
+
+Round two's allied pair can switch early to a reachable wounded hostile. Round three assigns three crossfire sectors. Round four and later normally maintain two attackers and a collector, rotate a stronger healthy collector into an attack slot after a minimum tenure and score margin, replace wounded attackers, and let healthy support join a reachable finishing opportunity. A repaired target's permanent exposure flag alone does not trigger support rush.
+
+The before/after native comparison uses matching map hashes for seeds 927 and 48, ordinary inventories, a scripted moving/firing/DASH player, forced round entry and a maximum of 30 combat seconds:
+
+| Seed | Round | Prior seconds / outcome | Current seconds / outcome |
+| --- | ---: | --- | --- |
+| 927 | 1 | 30.00 / playing | 30.00 / playing |
+| 927 | 2 | 30.00 / playing | 30.00 / playing |
+| 927 | 3 | 16.43 / defeat | 13.68 / defeat |
+| 927 | 4 | 11.13 / defeat | 15.00 / defeat |
+| 927 | 6 | 25.15 / defeat | 11.82 / defeat |
+| 48 | 1 | 30.00 / playing | 30.00 / playing |
+| 48 | 2 | 30.00 / playing | 30.00 / playing |
+| 48 | 3 | 14.07 / defeat | 9.37 / defeat |
+| 48 | 4 | 30.00 / playing | 9.70 / defeat |
+| 48 | 6 | 21.47 / defeat | 15.32 / defeat |
+
+Current bots defeat that player in six runs versus five previously, including every sampled coalition round. One fourth-round case takes longer; early free-for-all/pair cases still reach the limit. This is not a claim of improvement for every seed or a human balance result. Player shots/hits change from 613/238 to 378/46; those totals combine changed routes, pressure, duration and evasion, so they are not a controlled dodge-success percentage.
+
+Separate isolated open-arena pressure fixtures grant one active bot 80 physical reserve parts: six current player defeats versus one prior defeat over ten cases. They verify legal cadence, moving-target hits and conservation, rather than naturally earned ammunition. Both benchmark variants record zero errors. Reports and exact scope are in [Testing](TESTING.md). The final squad rerun also passes fourteen integration fixtures and five stationary-player native-map smokes, preserving actual growth, alliances, recovery, DASH and inventory.
+
+At this prior snapshot, the full rule suite passed **541 tests in 29 files**, without increasing timeouts. Strict TypeScript/Vite build, all three publication/security guards, 21 battle regressions, ten patch regressions and both actual-touch orientations passed. Its entry size was 2,773.18 kB / 439.94 kB gzip; the existing large-chunk warning remained. The previous growth-only results below belong to their earlier snapshot.
+
+## Prior bot growth behavior, 2026-10-10
+
+Incomplete bots seek parts that fit the current repair/growth frontier, including healthy stocked attackers and independent fighters after preparation. Movement toward useful loot can continue while aiming and firing at a viable hostile. Useful building mining approaches pickup reach and fires with the ordinary 0.23-second runtime cooldown in every round. Harvest volleys spend small real groups, usually 1–4; stocked bots can target a rare matching part among unsuitable material. Body-only mining has yield and armour-budget guards. Recovery, emergency evasion and finishing opportunities retain priority.
+
+The production-loop squad report passed **14 fixtures and five native-map smoke runs**, with **zero errors** and exact mass conservation (`artifacts/squad-growth-final-2026-10-10/report.json`, seed 927). The three added fixtures prove actual installation while an attacker/collector moves and fires, and early-round rapid building fire followed by real growth. Each moving-role fixture installed one exact donated part and fired twice; the mining fixture installed a real construction part, increased body progress from zero to two and fired its first five four-part volleys 0.2333 seconds apart. Granted resources in these fixtures are explicit instrumentation, not runtime bot grants. Growth and mining screenshots were inspected.
+
+Native runs use normal inventories and pickups with a stationary player after forced round entry. The counts below are attached authored body parts at the end, so later damage can reduce them; they are not repair/growth grants or guaranteed growth in every round.
+
+| Forced round | Combat seconds | Outcome | Bot shots (1/2/3) | Bot DASH starts (1/2/3) | Attached body parts (1/2/3) | Final roles | Conserved parts |
+| --- | ---: | --- | --- | --- | --- | --- | ---: |
+| 1 | 30.00 | Playing | 20 / 13 / 18 | 11 / 12 / 11 | 0 / 3 / 4 | independent / independent / independent | 3,943 |
+| 2 | 30.00 | Playing | 80 / 44 / 59 | 12 / 13 / 12 | 0 / 0 / 0 | attacker / attacker / independent | 3,954 |
+| 3 | 22.50 | Player defeat | 31 / 17 / 18 | 8 / 9 / 10 | 0 / 0 / 119 | attacker / attacker / attacker | 3,965 |
+| 4 | 30.00 | Playing | 17 / 4 / 11 | 11 / 13 / 8 | 41 / 33 / 24 | attacker / attacker / collector | 3,996 |
+| 6 | 19.77 | Player defeat | 46 / 73 / 17 | 6 / 5 / 6 | 0 / 0 / 12 | attacker / attacker / collector | 3,912 |
+
+These are partial behavior runs rather than completed wins or human balance measurements. See [Testing](TESTING.md) for the final rule-suite, build and other browser results.
+
+The final isolated rule suite passes **507 tests in 28 files** in **129.58 seconds**, retaining the default/existing timeouts and all mixed-map/dense-physics regressions. Strict TypeScript/Vite build, all three publication/security guards, 21 battle fixtures, ten patch fixtures and both actual-touch orientations pass. The existing large-entry warning remains.
+
+## Prior mixed-part constructions, 2026-10-10
+
+The live generator uses all **57 actual size/shape combinations** from the 17 heads and ten authored body plans. Twenty buildings retain five categories but vary in quantity, asymmetry and silhouette, using long bricks, broad plates and studless tiles. No part is resized or given an unavailable orientation. Supported face connectivity, non-overlap, 2.2-unit inter-building clearance and the four 52-unit-wide routes are covered by rule tests.
+
+The final serial suite passed **487 tests in 27 files** in **87.47 seconds**. Its mixed-loot integration preserves every identity, dimension, shape and color through demolition, physical settling, repair, growth, bank, body/reserve ammunition and rebound. It also found and fixed an actual long-plate stall in a narrow cover corridor; the exact-coordinate regression checks a local tangent exit without lifting or crossing a wall. Earlier dense collapses retain original test-only geometry, so changing the map does not weaken those checks.
+
+The updated patch browser report passed **10 fixtures with zero errors** (`artifacts/mixed-arena-final-2026-10-10/report.json`). Seeds 1/48/927 contain 20 buildings each, all 57 types and respectively 1,984 / 2,357 / 2,138 cover parts. Individual counts range 37–231 / 35–316 / 38–304. The three actual map screenshots were reviewed for mixed silhouettes and readable framing. A current 162-part tower settles completely after two forced 20-part impacts: all identities remain, debris scatters in two dimensions, final height is 2.92 versus source 17.30, and maximum distance is 9.75. Those forced impacts are separate from ordinary combat.
+
+The five-path battle regression also passed **21 fixtures with zero errors**, without new assisted matches (`artifacts/battle-mixed-final-2026-10-10/browser-report.json`, `BATTLE_AUDIT_MATCHES=0`). The squad rerun passed **11 fixtures and five native-map smoke runs** with zero errors and conservation (`artifacts/squad-mixed-final-2026-10-10/report.json`, seed 927). Each smoke run uses normal inventories/pickups and a stationary player after forced round entry:
+
+| Forced round | Combat seconds | Outcome | Bot shots (1/2/3) | Bot DASH starts (1/2/3) | Final roles | Conserved parts |
+| --- | ---: | --- | --- | --- | --- | ---: |
+| 1 | 30.00 | Playing | 18 / 16 / 19 | 10 / 9 / 8 | independent / independent / independent | 4,099 |
+| 2 | 30.00 | Playing | 68 / 75 / 37 | 8 / 10 / 7 | attacker / attacker / independent | 3,951 |
+| 3 | 9.97 | Player defeat | 16 / 28 / 27 | 4 / 1 / 3 | attacker / attacker / attacker | 3,990 |
+| 4 | 30.00 | Playing | 100 / 87 / 17 | 4 / 3 / 5 | attacker / attacker / collector | 3,836 |
+| 6 | 30.00 | Playing | 97 / 89 / 13 | 4 / 4 / 3 | attacker / collector / attacker | 3,934 |
+
+Actual-touch portrait/landscape checks passed with zero overflow/errors and input reset (`artifacts/mobile-mixed-final-2026-10-10/report.json`). Strict TypeScript/Vite production build and all three publication/security guards passed. See [Testing](TESTING.md) for reproduction and fixture scope; these partial native runs and fixed-step software rendering do not establish human balance or GPU FPS.
+
+## Prior audit corrections, 2026-10-10
+
+The audit corrections preserve real inventory while fixing stale hit radii, safe edge landings, touch DASH/firing ownership, stocked finishing volleys, unnecessary attacker loot ranking and recovery starvation. If every squad member needs recovery and attached counts stop improving for eight seconds, up to two armed members resume combat. This order stays latched until recovery or ammunition exhaustion; even a bare Core with real reserve can spend that reserve, while Core is never ammunition. Normal pickup and repair rules remain active.
+
+Building fragments now retain their world source positions and receive bounded outward impulses. Local clearance avoids the old actor-center relocation; swept cover/arena checks guard subsequent movement. A falling part lands only on an overlapping top face crossed from above. Parts entering a pile sideways move locally aside instead of being lifted onto its top.
+
+The isolated rule suite passed **481 tests in 26 files** in **87.00 seconds**, with serial workers and unchanged timeouts. The new browser regression passed **seven entries** with zero errors in `artifacts/patch-final-2026-10-10/report.json`. Native seed-16 rebound landing stays clear. Both resource-starved wounded bots and Core-only stocked bots resume physical firing without healing grants, and inventory is conserved. A native 1,919-part tower destroyed by 45 forced 20-part impacts retains every identity, settles in two dimensions around its base and ends at height 5.30 rather than the original source height 17.10. Its before/after screenshots were inspected. The denser Node regression adds 900 existing native plates and verifies complete settling, unchanged IDs/geometry/colors and no artificial upward trajectory.
+
+These tower impacts and starvation scenarios are isolated forced fixtures, not earned progression or completed matches. The volley fixture verifies bounded draw calls and shared-resource disposal rather than FPS. See [Testing](TESTING.md) for exact accepted scopes and reproduction.
+
+The final coordinated-bot browser rerun passed **11 fixture entries** and the following **five native-map smoke runs**, with zero errors and exact inventory conservation (`artifacts/squad-patch-final-2026-10-10/report.json`, seed 927). These runs use normal inventories/pickups, regenerated maps and a stationary player after forced round entry. Four stop at 30 combat seconds; the third ends earlier through the actual immediate-defeat flow.
+
+| Forced round | Combat seconds | Outcome | Bot shots (1/2/3) | Bot DASH starts (1/2/3) | Final roles | Conserved parts |
+| --- | ---: | --- | --- | --- | --- | ---: |
+| 1 | 30.00 | Playing | 32 / 21 / 33 | 9 / 6 / 10 | independent / independent / independent | 11,957 |
+| 2 | 30.00 | Playing | 31 / 75 / 46 | 2 / 9 / 8 | attacker / attacker / independent | 12,261 |
+| 3 | 11.33 | Player defeat | 22 / 33 / 25 | 4 / 3 / 2 | attacker / attacker / attacker | 12,579 |
+| 4 | 30.00 | Playing | 86 / 89 / 41 | 4 / 5 / 1 | attacker / recover / attacker | 10,292 |
+| 6 | 30.00 | Playing | 96 / 93 / 47 | 5 / 1 / 1 | attacker / attacker / collector | 12,671 |
+
+The battle regression also passed all **21 fixture entries** across five paths without new assisted matches (`artifacts/battle-patch-final-2026-10-10/browser-report.json`). Actual-touch portrait/landscape checks passed in `artifacts/mobile-patch-final-2026-10-10/report.json`. Strict TypeScript/Vite build and three publication/security guards passed. Native smoke outcomes are behavior observations, not human win rates or performance measurements.
+
+## Prior coordinated-bot verification, 2026-10-09
 
 Round 1 remains free-for-all; round 2 allies bot-1/bot-2 against the other independent fighters; from round 3 all bots ally against the player. From round 4, healthy members keep two attackers and one collector, with immediate replacement when an attacker reaches 65% of its attained attached peak. Recovery ends at 90%; inventories and Core exposure are never fabricated or reset by role decisions. The opening toast announces the round's challenge. Bots use finite, cooldown-bound DASH and adaptive real-part batches; healthy combat in later rounds can use the player's 0.23-second firing interval even with safe body ammunition.
 

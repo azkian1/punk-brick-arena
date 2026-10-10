@@ -76,14 +76,14 @@ describe('four bot personalities and round difficulty', () => {
     }
     expect(Math.hypot(actor.x - 32, actor.z - 32)).toBeGreaterThan(10);
   });
-  it('starts every run with a weak universal, then a medium universal, before unlocking all four styles', () => {
+  it('starts and resets at full strength, keeps the opening universal styles and unlocks all four specialists', () => {
     const styles = new Set();
     for (const value of [0, 0.2499, 0.25, 0.4999, 0.5, 0.7499, 0.75, 0.999]) {
       const first = newRound(CHARACTER_TEMPLATES, 'violet', () => value);
-      expect([first.enemyBehavior, first.enemyDifficulty]).toEqual(['balanced', 'easy']);
+      expect([first.enemyBehavior, first.enemyDifficulty]).toEqual(['balanced', 'normal']);
       first.enemy.pieces.clear();
       const second = nextRound(CHARACTER_TEMPLATES, first, () => value);
-      expect([second.number, second.enemyBehavior, second.enemyDifficulty]).toEqual([2, 'balanced', 'medium']);
+      expect([second.number, second.enemyBehavior, second.enemyDifficulty]).toEqual([2, 'balanced', 'normal']);
       second.enemy.pieces.clear();
       const third = nextRound(CHARACTER_TEMPLATES, second, () => value);
       expect(third.number).toBe(3); expect(third.enemyDifficulty).toBe('normal');
@@ -94,7 +94,7 @@ describe('four bot personalities and round difficulty', () => {
       const fourth = nextRound(CHARACTER_TEMPLATES, third, () => value);
       expect([fourth.enemyBehavior, fourth.enemyDifficulty]).toEqual([third.enemyBehavior, 'normal']);
       const reset = newRound(CHARACTER_TEMPLATES, fourth.playerTemplate.id, () => value);
-      expect([reset.number, reset.enemyBehavior, reset.enemyDifficulty]).toEqual([1, 'balanced', 'easy']);
+      expect([reset.number, reset.enemyBehavior, reset.enemyDifficulty]).toEqual([1, 'balanced', 'normal']);
     }
     expect(styles).toEqual(new Set(BOT_STYLES));
   });

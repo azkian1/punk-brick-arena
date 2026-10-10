@@ -30,7 +30,7 @@ const qaEnter = number => {
   renderer.shake=0;draw(0);updateUI();
 };
 window.__squadQA={
-  state:()=>({...window.__arenaSnapshot,inventory:actors[0]&&[...actors[0].structure.pieces.values(),...(actors[0].structure.evolution?.reserve||[])].map(p=>[p.id,p.position,p.size,p.color,p.shape])}),
+  state:()=>({...window.__arenaSnapshot,progress:actors.map(a=>({id:a.id,...evolutionProgress(a.structure)})),inventory:actors[0]&&[...actors[0].structure.pieces.values(),...(actors[0].structure.evolution?.reserve||[])].map(p=>[p.id,p.position,p.size,p.color,p.shape])}),
   step:n=>{for(let i=0;i<n;i++)tick(1/60);renderer.shake=0;draw(0);updateUI();return window.__squadQA.state();},
   enter:qaEnter,
   teamFixture:number=>{
@@ -90,6 +90,56 @@ window.__squadQA={
     // threat fixture; its pieces/age/damage still use production rules.
     const s=shots.at(-1);s.x=14;s.z=0;
     const state=window.__squadQA.step(1);return {start,priorMass,mass:window.__arenaSnapshot.mass,state};
+  },
+  growthFixture:(role='attacker')=>{
+    qaEnter(4);qaClearCover();drops=[];
+    const a=actors[role==='collector'?3:1],p=actors[0];
+    for(const b of actors){b.bot=undefined;b.vx=b.vz=0;b.x=-65;b.z=b.id==='bot-2'?-65:65;}
+    a.bot=createBot('balanced',()=>.75,'normal');a.x=a.z=0;p.x=55;p.z=-10;
+    // Equal real stock keeps the initial attack pair healthy and equally armed,
+    // so this isolates growth without triggering the new strength-based swap.
+    for(const b of actors.slice(1))qaStock(b,24);
+    updateBounds(a);
+    // A rushing attacker keeps its existing short optional-pickup policy.
+    // Measure this placement from the actual current form, before growth.
+    const pickupRadiusAtStart=a.pickupRadius,lootDistance=pickupRadiusAtStart+10;
+    const e=a.structure.evolution,slot=e.plan.slots.find((slot,i)=>!e.occupied[i]&&!e.everBuilt.has(i)&&e.plan.neighbors[i].some(n=>e.occupied[n]));
+    if(!slot)throw new Error('growth fixture needs a real connected unbuilt slot');
+    const part={...slot,id:'qa-growth/'+role,position:{...slot.position},size:{...slot.size},color:'#00aa77'};
+    drops.push({piece:part,ownerId:null,x:0,y:debrisFloorY(part),z:lootDistance,vx:0,vy:0,vz:0,age:6,settled:true,rotation:0});
+    updateBounds(a);updateBounds(p);
+    const mass=window.__arenaSnapshot.mass,start={x:a.x,z:a.z},before=evolutionProgress(a.structure).built,samples=[];
+    let installed=false;
+    for(let i=0;i<600&&phase==='playing'&&!installed;i++){
+      tick(1/60);installed=a.structure.pieces.has(part.id);
+      if(i%6===0||installed){const f=window.__arenaSnapshot.fighters.find(f=>f.id===a.id);samples.push({time:stats.elapsed,x:a.x,z:a.z,role:f.role,intent:f.intent,targetId:f.targetId,shots:f.shotsFired,built:evolutionProgress(a.structure).built});}
+    }
+    renderer.shake=0;draw(0);updateUI();
+    return{role,mass,afterMass:window.__arenaSnapshot.mass,start,pickupRadiusAtStart,lootDistance,before,after:evolutionProgress(a.structure).built,installed,part:installed?{id:part.id,size:part.size,shape:part.shape,color:a.structure.pieces.get(part.id).color}:null,samples};
+  },
+  harvestFixture:()=>{
+    qaEnter(1);qaClearCover();drops=[];
+    const a=actors[1],p=actors[0];
+    for(const b of actors){b.bot=undefined;b.vx=b.vz=0;b.x=-65;b.z=b.id==='bot-2'?-65:65;}
+    a.bot=createBot('balanced',()=>.75,'normal');a.x=a.z=0;p.x=-55;p.z=-50;qaStock(a,240);
+    const e=a.structure.evolution,slot=e.plan.slots.find((slot,i)=>!e.occupied[i]&&!e.everBuilt.has(i)&&e.plan.neighbors[i].some(n=>e.occupied[n]));
+    if(!slot)throw new Error('harvest fixture needs a real growth part');
+    const columns=Math.max(1,Math.min(16,Math.floor(56/(slot.size.x*CONFIG.characterScale)))),rows=Math.max(1,Math.min(16,Math.floor(24/(slot.size.z*CONFIG.characterScale))));
+    const parts=[];
+    for(let x=0;x<columns;x++)for(let z=0;z<rows;z++)parts.push({...slot,id:'qa-harvest/'+x+'/'+z,size:{...slot.size},position:{x:(x-columns/2)*slot.size.x,y:0,z:(z-rows/2)*slot.size.z},color:'#00aa77'});
+    const structure={pieces:new Map(parts.map(part=>[part.id,part])),coreId:parts[0].id,vacancies:[],revision:0,roundStartPieces:parts.length,coreExposed:true};
+    const b={id:'qa-harvest',template:'ruin',x:0,z:40,structure,bounds:getBounds(structure)};buildings=[b];
+    const v=new CharacterView(renderer.scene,'#8c9b8d');v.root.position.set(b.x,0,b.z);v.sync(structure);v.ring.visible=v.core.visible=false;buildingViews=[v];
+    updateBounds(a);updateBounds(p);
+    const ids=new Set(parts.map(part=>part.id)),mass=window.__arenaSnapshot.mass,start={x:a.x,z:a.z},before=evolutionProgress(a.structure).built,samples=[];
+    let previousShots=0,installed=0,maxReserve=0;
+    for(let i=0;i<1500&&phase==='playing';i++){
+      tick(1/60);installed=[...a.structure.pieces.keys()].filter(id=>ids.has(id)).length;maxReserve=Math.max(maxReserve,e.reserve.filter(part=>ids.has(part.id)).length);
+      if(a.shotsFired!==previousShots){samples.push({time:stats.elapsed,shots:a.shotsFired,count:a.lastShotCount,cooldown:a.cooldown,x:a.x,z:a.z,remaining:b.structure.pieces.size,built:evolutionProgress(a.structure).built});previousShots=a.shotsFired;}
+      if(installed>0&&samples.length>=5)break;
+    }
+    renderer.shake=0;draw(0);updateUI();
+    return{mass,afterMass:window.__arenaSnapshot.mass,start,before,after:evolutionProgress(a.structure).built,initialParts:parts.length,remaining:b.structure.pieces.size,installed,maxReserve,samples,events:combatEvents.filter(event=>event.kind==='building'),coreAlive:alive(a)};
   },
   stopBots:()=>{for(const a of actors)a.bot=undefined;},
 };
@@ -164,20 +214,37 @@ try {
   await page.keyboard.press('p');await page.evaluate(()=>window.__squadQA.enter(1));
   const reset=await page.evaluate(()=>window.__squadQA.state());assert(reset.fighters.every(f=>f.dashStarts===0&&f.dash.remaining===0&&f.dash.cooldown===0));
   report.fixtures.push({realDashPauseRestart:dash});
+  for(const role of ['attacker','collector']){
+    const growth=await page.evaluate(role=>window.__squadQA.growthFixture(role),role);
+    report.fixtures.push({growthWhileFighting:growth});
+    assert.equal(growth.mass,growth.afterMass);assert(growth.installed&&growth.after>growth.before,'bot failed to install real growth loot');
+    assert(growth.samples.some(sample=>sample.z>growth.start.z+1&&sample.shots>0&&sample.intent==='collect'&&sample.targetId==='player'),'bot did not collect and fire while moving');
+    assert(growth.samples.every(sample=>sample.role===role),'growth fixture changed its assigned squad role');
+    await page.screenshot({path:output+'/growth-'+role+'.png'});
+  }
+  const harvest=await page.evaluate(()=>window.__squadQA.harvestFixture());
+  report.fixtures.push({earlyRoundRapidHarvestAndRealGrowth:harvest});
+  assert.equal(harvest.mass,harvest.afterMass);assert(harvest.coreAlive&&harvest.installed>0&&harvest.after>harvest.before,'harvesting failed to produce actual growth');
+  assert(harvest.samples.length>=5&&harvest.events.length>0,'harvest failed to shoot real cover repeatedly');
+  assert(harvest.samples.every(sample=>sample.count>=1&&sample.count<=4),'harvesting spent an excessive volley');
+  for(let i=1;i<5;i++){const spacing=harvest.samples[i].time-harvest.samples[i-1].time;assert(spacing>=.23-1e-6&&spacing<=.23+1/60+1e-6,'early harvesting has an extra delay or bypasses cooldown');}
+  assert(harvest.samples.some(sample=>sample.z>harvest.start.z+2),'harvesting bot did not approach its resources');
+  await page.screenshot({path:output+'/rapid-harvest-growth.png'});
   for(const number of [1,2,3,4,6]){
     await page.evaluate(n=>window.__squadQA.enter(n),number);let state=await page.evaluate(()=>window.__squadQA.state());const mass=state.mass,samples=[];
     for(let seconds=0;seconds<30&&state.phase==='playing';seconds+=2){
       state=await page.evaluate(()=>window.__squadQA.step(120));assert.equal(state.mass,mass,'native smoke lost physical inventory');
-      samples.push({elapsed:state.elapsed,phase:state.phase,fighters:state.fighters,events:state.events.slice(-8)});
+      samples.push({elapsed:state.elapsed,phase:state.phase,fighters:state.fighters,progress:state.progress,events:state.events.slice(-8)});
       for(const event of state.events.filter(e=>e.kind==='actor')){
         if(number===2)assert(!(['bot-1','bot-2'].includes(event.ownerId)&&['bot-1','bot-2'].includes(event.targetId)),'round2 allies hit each other');
         if(number>=3)assert(!(event.ownerId.startsWith('bot-')&&event.targetId.startsWith('bot-')),'coalition bots hit each other');
       }
     }
     assert(state.fighters.slice(1).some(f=>f.shotsFired>0),'native bots failed to attack or harvest');
-    const smoke={round:number,elapsed:state.elapsed,phase:state.phase,outcome:state.outcome,mass,samples};report.smoke.push(smoke);
-    console.log(JSON.stringify({round:number,elapsed:state.elapsed,outcome:state.outcome,shots:state.fighters.slice(1).map(f=>f.shotsFired),dashes:state.fighters.slice(1).map(f=>f.dashStarts),ok:true}));
+    const smoke={round:number,elapsed:state.elapsed,phase:state.phase,outcome:state.outcome,mass,progress:state.progress,samples};report.smoke.push(smoke);
+    console.log(JSON.stringify({round:number,elapsed:state.elapsed,outcome:state.outcome,shots:state.fighters.slice(1).map(f=>f.shotsFired),dashes:state.fighters.slice(1).map(f=>f.dashStarts),built:state.progress.slice(1).map(f=>f.built),ok:true}));
   }
+  assert(report.smoke.some(run=>run.samples.some(sample=>sample.progress.some(f=>f.id!=='player'&&f.built>0))),'native bots never grew their real authored bodies');
   assert.deepEqual(report.errors,[]);report.ok=true;
 }catch(e){report.ok=false;report.failure={message:e.message,stack:e.stack};try{report.failure.snapshot=await page?.evaluate(()=>window.__squadQA?.state());}catch{}throw e;}
 finally{await writeFile(output+'/report.json',JSON.stringify(report,null,2));await browser?.close();await server?.close();}

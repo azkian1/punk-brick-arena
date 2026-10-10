@@ -1,5 +1,6 @@
 import { CONFIG } from './config';
 import { collectPiece } from './evolution';
+import { groundIndex, type GroundIndex } from './ground-index';
 import type { AttachmentResult, Piece, Random, Structure, Vec3 } from './types';
 
 export interface PickupState {
@@ -48,11 +49,11 @@ export function pickupRadiusForBounds(bounds: { min: Vec3; max: Vec3 }): number 
 const failedPlacements = new WeakMap<PickupDrop, WeakMap<Structure, number>>();
 
 export function collectNearbyDrops<T extends PickupDrop>(
-  drops: T[], collectors: PickupCollector[], rng: Random = Math.random,
+  drops: T[], collectors: PickupCollector[], rng: Random = Math.random, index: GroundIndex<T> = groundIndex(drops),
 ): CollectedPickup<T>[] {
   const candidates: { drop: T; collector: PickupCollector; distance: number }[] = [];
-  for (const drop of drops) {
-    for (const collector of collectors) {
+  for (const collector of collectors) {
+    for (const drop of index.within(collector.x, collector.z, collector.pickupRadius)) {
       if (!canCollectDrop(drop, collector.id) || !collector.structure.pieces.has(collector.structure.coreId)) continue;
       if (failedPlacements.get(drop)?.get(collector.structure) === collector.structure.revision) continue;
       const distance = (drop.x - collector.x) ** 2 + (drop.z - collector.z) ** 2;
@@ -60,7 +61,8 @@ export function collectNearbyDrops<T extends PickupDrop>(
     }
   }
   // Resolve shared loot by proximity, not by whichever actor happened to be first.
-  candidates.sort((a, b) => a.distance - b.distance);
+  candidates.sort((a, b) => a.distance - b.distance || index.order(a.drop) - index.order(b.drop)
+    || collectors.indexOf(a.collector) - collectors.indexOf(b.collector));
   const collected = new Set<T>();
   const counts = new Map<PickupCollector, number>();
   const results: CollectedPickup<T>[] = [];
