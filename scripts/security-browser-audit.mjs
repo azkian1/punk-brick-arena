@@ -60,7 +60,8 @@ try {
   await page.locator('[data-action="start"]').click();
   await page.waitForFunction(() => document.querySelector('.game-ui')?.dataset.screen === 'playing' && window.__securityAudioContext?.state === 'running');
   assert.equal(await page.locator('#arena').evaluate(canvas => !!canvas.getContext('webgl2')), true, 'production WebGL context');
-  assert.match(await page.locator('[data-clock]').textContent(), /^\d{2}:\d{2}$/, 'game clock renders');
+  const elapsed = await page.evaluate(() => window.__arenaSnapshot.elapsed);
+  await page.waitForFunction(start => window.__arenaSnapshot.elapsed > start, elapsed);
   report.normalViolations = await page.evaluate(() => [...window.__securityViolations]);
   assert.deepEqual(report.normalErrors, [], 'normal application page errors');
   assert.deepEqual(report.normalViolations, [], 'normal application CSP violations');

@@ -216,7 +216,7 @@ function beginRound(state: BattleRound) {
   const challenge = state.number === 1 ? 'Every fighter for themselves'
     : state.number === 2 ? `${actors[1].template.name} + ${actors[2].template.name} are allied`
     : state.number === 3 ? 'All three bots are allied against you' : 'Bot squad · Crossfire, growth and recovery';
-  ui.toast(`Round ${state.number} · ${challenge}`, 'repair');
+  if (!window.matchMedia('(pointer: coarse)').matches) ui.toast(`Round ${state.number} · ${challenge}`, 'repair');
   updateUI();
   canvas.focus();
 }
@@ -526,7 +526,7 @@ function draw(dt: number) {
   runeView.visible = rune.available && (phase === 'playing' || phase === 'paused');
   runeView.position.y = 2.6 + Math.sin(rune.elapsed * 2) * .25;
   runeView.rotation.y = rune.elapsed * .6;
-  renderer.fitCombat([...actors.filter(alive), ...buildings.filter(building => building.structure.pieces.size > 0)]);
+  renderer.fitCombat([...actors.filter(alive), ...buildings.filter(building => building.structure.pieces.size > 0)], actors[0], dt);
   // Packed groups use the same offsets in flight and when splitting into loot.
   shots.forEach(s => { s.mesh.position.set(s.x, s.y, s.z); s.mesh.rotation.set(0, s.pieces.length > 1 ? 0 : simTime * 8, 0); });
   if (drops.length > droppedView.instanceMatrix.count) resizeDropView(2 ** Math.ceil(Math.log2(drops.length)));
@@ -661,6 +661,8 @@ Object.defineProperty(window, '__arenaSnapshot', { get: () => ({
   mass: actors.reduce((n, actor) => n + actor.structure.pieces.size + (actor.structure.evolution?.reserve.length ?? 0), 0)
     + buildings.reduce((n, building) => n + building.structure.pieces.size, 0) + drops.length + shots.reduce((n, shot) => n + shot.pieces.length, 0),
   drops: drops.length, projectiles: shots.length, events: [...combatEvents],
+  camera: { x: renderer.camera.position.x, z: renderer.camera.position.z - 76,
+    viewWidth: renderer.camera.right - renderer.camera.left, viewHeight: renderer.camera.top - renderer.camera.bottom },
   input: { touchMovement: { ...touchMovement }, firing }, stats: { ...stats }, drawCalls: renderer.renderer.info.render.calls,
 }) });
 showPreview();

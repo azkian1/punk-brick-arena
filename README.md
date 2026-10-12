@@ -8,6 +8,12 @@ Current local work: **v2 Battle Royal patch**, with mixed-part constructions, ha
 
 **[Play Punk Brick Arena](https://azkian1.github.io/punk-brick-arena/)** in a browser with a keyboard and mouse or touch controls.
 
+## Gameplay video
+
+[![Watch the Punk Brick Arena v2 gameplay video](docs/gameplay-v2-preview.png)](punk-brick-arena-x.mp4)
+
+[Watch the 18-second v2 gameplay video (MP4, 9 MB)](punk-brick-arena-x.mp4).
+
 ## About the project
 
 Punk Brick Arena is an independent, noncommercial fan project inspired by CryptoPunks, created purely for NFT culture with no financial interest. It is not affiliated with, sponsored by, or endorsed by CryptoPunks or LEGO.

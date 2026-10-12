@@ -52,9 +52,11 @@ type ResultStats = { elapsed: number; repairs: number; growth: number; hits: num
 
 const escape = (value: string) => value.replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]!));
 const time = (seconds: number) => `${Math.floor(seconds / 60).toString().padStart(2, '0')}:${Math.floor(seconds % 60).toString().padStart(2, '0')}`;
-const icon = (name: 'arrow' | 'sound' | 'muted' | 'pause' | 'play' | 'reset' | 'backpack') => {
+const icon = (name: 'arrow' | 'ammo' | 'dash' | 'sound' | 'muted' | 'pause' | 'play' | 'reset' | 'backpack') => {
   const paths = {
     arrow: '<path d="M5 12h14M13 6l6 6-6 6"/>',
+    ammo: '<path d="M12 2c3 0 5 3 5 6v10a3 3 0 0 1-3 3h-4a3 3 0 0 1-3-3V8c0-3 2-6 5-6Z"/><path d="M7 13h10M9 17h6"/>',
+    dash: '<path d="M4 6l6 6-6 6M12 6l6 6-6 6"/>',
     sound: '<path d="M11 5 6 9H3v6h3l5 4V5Z"/><path d="M15 8a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14"/>',
     muted: '<path d="M11 5 6 9H3v6h3l5 4V5Z"/><path d="m16 9 6 6m0-6-6 6"/>',
     pause: '<path d="M8 5v14M16 5v14"/>',
@@ -129,7 +131,7 @@ export class GameUI {
             </div>
             <button class="primary-button play-button" data-action="start"><span>Play Battle Royale</span>${icon('arrow')}</button>
             <p class="play-caption">Free to play · In your browser · Keyboard, mouse, or touch</p>
-            <p class="touch-note">In a match, use the left joystick to move and touch the arena to aim and fire.</p>
+            <p class="touch-note">In a match, use the left joystick to move, tap DASH to dodge, and touch the arena to aim and fire.</p>
           </div>
           <div class="punk-preview" aria-label="Selected punk preview">
             <div class="preview-toolbar"><span><span class="pixel-dot" aria-hidden="true"></span> BRICK VIEW</span><span>LIVE 3D</span></div>
@@ -179,8 +181,8 @@ export class GameUI {
       </div>
 
       <aside class="action-panel" data-section="hud" aria-label="Movement and shooting" hidden>
-        <button type="button" class="dash-hud" data-action="dash" aria-label="Dash"><div class="dash-hud__heading"><span class="dash-hud__label">MOVEMENT</span><kbd>SPACE</kbd></div><div class="dash-hud__body"><strong>DASH</strong><span data-dash-status>Ready</span></div><p class="dash-hud__description">Burst to dodge.</p><progress data-dash-progress max="1" value="1" aria-label="Dash readiness"></progress></button>
-        <div class="shot-control"><label for="shot-count"><span class="shot-control__heading"><strong>Shot size</strong><span>PARTS / SHOT</span></span><output for="shot-count" data-shot-count-output>1</output></label><input id="shot-count" data-shot-count type="range" min="1" max="20" step="1" value="1" aria-label="Parts per shot" aria-valuetext="1 piece per shot" title="Each fired part deals one direct damage. Backpack parts fire first." /><div class="shot-control__limits" aria-hidden="true"><span>1 part</span><span>20 parts</span></div><p>Backpack parts fire first.</p></div>
+        <button type="button" class="dash-hud" data-action="dash" aria-label="Dash"><div class="dash-hud__heading"><span class="dash-hud__label">MOVEMENT</span><kbd>SPACE</kbd></div><div class="dash-hud__body"><strong>DASH</strong><span data-dash-status>Ready</span></div><span class="dash-hud__mobile-icon" aria-hidden="true">${icon('dash')}</span><p class="dash-hud__description">Burst to dodge.</p><progress data-dash-progress max="1" value="1" aria-label="Dash readiness"></progress></button>
+        <div class="shot-control"><label for="shot-count"><span class="shot-control__heading"><strong>Shot size</strong><span>PARTS / SHOT</span><span class="shot-control__icon" aria-hidden="true">${icon('ammo')}</span></span><output for="shot-count" data-shot-count-output>1</output></label><input id="shot-count" data-shot-count type="range" min="1" max="20" step="1" value="1" aria-label="Parts per shot" aria-valuetext="1 piece per shot" title="Each fired part deals one direct damage. Backpack parts fire first." /><div class="shot-control__limits" aria-hidden="true"><span>1 part</span><span>20 parts</span></div><p>Backpack parts fire first.</p></div>
       </aside>
       <div class="victory-collection" data-section="collecting" role="status" hidden><span class="section-kicker">VICTORY!</span><strong>Assembling your next form</strong><span><b data-victory-collected>0</b> / <b data-victory-total>0</b> <span data-victory-piece-label>pieces</span></span><progress data-victory-progress max="1" value="0" aria-label="Victory collection"></progress><small>Loot + reserve. Repair, build, save the rest.</small></div>
 
@@ -418,8 +420,12 @@ export class GameUI {
     this.dashAvailable = data.dashCooldown <= 0 && !data.dashing;
     this.syncActionState();
     this.setText('[data-dash-status]', data.dashing ? 'Dashing!' : data.dashCooldown > 0 ? `${data.dashCooldown.toFixed(1)} s` : 'Ready');
-    this.element.querySelector<HTMLProgressElement>('[data-dash-progress]')!.value = 1 - data.dashCooldown / CONFIG.dashCooldown;
-    this.element.querySelector<HTMLElement>('.dash-hud')!.classList.toggle('is-ready', data.dashCooldown <= 0);
+    const dashProgress = Math.max(0, Math.min(1, 1 - data.dashCooldown / CONFIG.dashCooldown));
+    this.element.querySelector<HTMLProgressElement>('[data-dash-progress]')!.value = dashProgress;
+    const dashButton = this.element.querySelector<HTMLButtonElement>('.dash-hud')!;
+    dashButton.style.setProperty('--dash-fill', `${dashProgress * 100}%`);
+    dashButton.classList.toggle('is-ready', data.dashCooldown <= 0);
+    dashButton.setAttribute('aria-label', data.dashing ? 'Dashing' : data.dashCooldown > 0 ? `Dash recharging: ${data.dashCooldown.toFixed(1)} seconds` : 'Dash ready');
     this.setText('[data-victory-collected]', data.victoryCollected);
     this.setText('[data-victory-total]', data.victoryTotal);
     this.setText('[data-victory-piece-label]', pieceWord(data.victoryTotal));

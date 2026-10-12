@@ -353,6 +353,8 @@ export class ArenaRenderer {
   private aimRing: THREE.Mesh;
   private shake = 0;
   private previewMode = false;
+  private mobileCombat = false;
+  private mobileFocusInitialized = false;
   private combatHalfHeight = 37 / CONFIG.cameraZoom;
   private hudElement: HTMLElement | null = null;
   private hudAnchor = '';
@@ -432,6 +434,7 @@ export class ArenaRenderer {
   }
   setPreviewMode(preview: boolean) {
     this.previewMode = preview;
+    this.mobileFocusInitialized = false;
     this.ground.visible = !preview;
     const background = preview ? '#638596' : '#f2f5f7';
     this.scene.background = new THREE.Color(background);
@@ -445,14 +448,17 @@ export class ArenaRenderer {
     if (this.renderer.getPixelRatio() !== density) this.renderer.setPixelRatio(density);
     this.renderer.setSize(this.width, this.height, false);
     const aspect = this.width / this.height;
+    const mobileCombat = !this.previewMode && window.matchMedia('(pointer: coarse)').matches && Math.min(this.width, this.height) <= 760;
+    if (mobileCombat !== this.mobileCombat) this.mobileFocusInitialized = false;
+    this.mobileCombat = mobileCombat;
     const desktop = this.width > 760;
     const sidebar = document.querySelector<HTMLElement>('.player-sidebar')?.getBoundingClientRect();
     const actions = document.querySelector<HTMLElement>('.action-panel')?.getBoundingClientRect();
-    const left = this.previewMode || !desktop ? 0 : sidebar?.width ? sidebar.right + 12 : 214;
-    const right = this.previewMode || !desktop ? 0 : actions?.width ? this.width - actions.left + 12 : 214;
-    const top = this.previewMode ? 0 : desktop ? 78 : 54, bottom = this.previewMode ? 0 : 16;
+    const left = this.previewMode || mobileCombat || !desktop ? 0 : sidebar?.width ? sidebar.right + 12 : 214;
+    const right = this.previewMode || mobileCombat || !desktop ? 0 : actions?.width ? this.width - actions.left + 12 : 214;
+    const top = this.previewMode || mobileCombat ? 0 : desktop ? 78 : 54, bottom = this.previewMode || mobileCombat ? 0 : 16;
     const arenaAspect = Math.max(1, this.width - left - right) / this.height;
-    const halfHeight = this.previewMode ? Math.max(18, 14 / aspect) : Math.max(
+    const halfHeight = this.previewMode ? Math.max(18, 14 / aspect) : mobileCombat ? (this.width < this.height ? 36 : 28) : Math.max(
       this.combatHalfHeight * this.height / Math.max(1, this.height - top - bottom),
       (CONFIG.arenaWidth / 2 + 3) / arenaAspect);
     const offsetX = -halfHeight * aspect * (left - right) / this.width;
@@ -490,8 +496,22 @@ export class ArenaRenderer {
     this.hudElement.style.setProperty('--arena-hud-height', `${height}px`);
     this.hudAnchor = anchor;
   }
-  fitCombat(actors: { x: number; z: number; bounds: { min: Vec3; max: Vec3 } }[]) {
+  fitCombat(actors: { x: number; z: number; bounds: { min: Vec3; max: Vec3 } }[], focus?: { x: number; z: number }, dt = 0) {
     if (this.previewMode) return;
+    if (this.mobileCombat && focus) {
+      const landscape = this.width > this.height;
+      const focusX = focus.x - (landscape ? Math.sign(focus.x) * Math.min(10, Math.abs(focus.x) * .2) : 0);
+      const focusZ = focus.z - (landscape ? Math.sign(focus.z) * Math.min(12, Math.abs(focus.z) * .25) : 0);
+      if (!this.mobileFocusInitialized || Math.hypot(this.cameraTarget.x - focusX, this.cameraTarget.z - focusZ) > 45) {
+        this.cameraTarget.set(focusX, 0, focusZ);
+        this.mobileFocusInitialized = true;
+      } else {
+        const blend = 1 - Math.exp(-dt * 9);
+        this.cameraTarget.x += (focusX - this.cameraTarget.x) * blend;
+        this.cameraTarget.z += (focusZ - this.cameraTarget.z) * blend;
+      }
+      return;
+    }
     const length = Math.hypot(68, 76), upY = 76 / length, upZ = -68 / length;
     let low = -CONFIG.arenaDepth / 2 * -upZ, high = -low;
     for (const { z, bounds } of actors) {
